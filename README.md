@@ -73,6 +73,7 @@ Each runner emits a `ModelResponse` per scenario. A `Rubric` attached to each sc
 | `hf:*` | Hugging Face Inference endpoint | stub |
 | `vllm:*` | Local vLLM server | stub |
 | `stub:echo` | Returns the prompt verbatim; deterministic; used for tests | implemented |
+| `stub:empty` | Returns the empty string; deterministic; used for failure-mode tests | implemented |
 
 Each runner discloses: `provider`, `model`, `version`, `temperature`, `systemPrompt`, `accessedAt`, `latencyMs`. These travel with every `ModelResponse` and are serialised into the `RunRecord`.
 
