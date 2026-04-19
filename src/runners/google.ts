@@ -22,7 +22,7 @@ export function createGoogleRunner(model: string): Runner {
     async run(_scenario: Scenario, _opts: RunnerOptions = {}): Promise<ModelResponse> {
       throw new Error(
         `[${id}] google runner not yet implemented. Ships with Assay-Adtech v1. ` +
-          `Track at https://github.com/agnt-os/assay-harness/issues`,
+          `Track at https://github.com/agentsia-uk/assay-harness/issues`,
       )
     },
   }

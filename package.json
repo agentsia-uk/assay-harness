@@ -41,10 +41,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agnt-os/assay-harness.git"
+    "url": "git+https://github.com/agentsia-uk/assay-harness.git"
   },
   "bugs": {
-    "url": "https://github.com/agnt-os/assay-harness/issues"
+    "url": "https://github.com/agentsia-uk/assay-harness/issues"
   },
   "homepage": "https://labs.agentsia.uk"
 }
