@@ -8,7 +8,7 @@ Anyone can use this harness to reproduce Agentsia Labs numbers, or to score thei
 
 ## Status
 
-**v0.3.0 · 2026-04 · Anthropic + OpenAI adapters live.** The public surface (types, CLI shape, runner interface, rubric contract, output format) is stable. Anthropic Messages API and OpenAI Chat Completions adapters are implemented; Google, Hugging Face, and vLLM are still stubs. The full cross-provider harness ships alongside the inaugural Agentsia Labs benchmark, Assay-Adtech v1, targeted Q2 2026.
+**v0.4.0 · 2026-04 · Every adapter live.** The public surface (types, CLI shape, runner interface, rubric contract, output format) is stable. Anthropic Messages API, OpenAI Chat Completions, Google Gemini (no grounding), Hugging Face Inference, and local vLLM adapters are all implemented. Harness is ready for the inaugural Agentsia Labs benchmark, Assay-Adtech v1, targeted Q2 2026.
 
 ## Scope
 
@@ -63,15 +63,15 @@ Each runner emits a `ModelResponse` per scenario. A `Rubric` attached to each sc
 | **Composite** | Weighted average across axes. Weights are published alongside the release with a rationale. |
 | **RunRecord** | Top-level output: the dataset version, the runners evaluated, every `Score`, and every `ModelAggregate`. |
 
-## Runners (planned)
+## Runners
 
 | Runner id | Provider | Implementation status |
 |---|---|---|
 | `anthropic:*` | Anthropic Messages API | implemented (v0.2) |
 | `openai:*` | OpenAI Chat Completions API | implemented (v0.3) |
 | `google:*` | Google Gemini API (no grounding) | implemented (v0.4) |
-| `hf:*` | Hugging Face Inference endpoint | stub |
-| `vllm:*` | Local vLLM server | stub |
+| `hf:*` | Hugging Face Inference endpoint | implemented (v0.4) |
+| `vllm:*` | Local vLLM server (OpenAI-compatible) | implemented (v0.4) |
 | `stub:echo` | Returns the prompt verbatim; deterministic; used for tests | implemented |
 | `stub:empty` | Returns the empty string; deterministic; used for failure-mode tests | implemented |
 
