@@ -28,6 +28,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
+    "@google/genai": "^1.50.1",
+    "@huggingface/inference": "^4.13.15",
     "commander": "^12.1.0",
     "openai": "^6.34.0"
   },
