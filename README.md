@@ -8,7 +8,7 @@ Anyone can use this harness to reproduce Agentsia Labs numbers, or to score thei
 
 ## Status
 
-**v0.1.0 · 2026-04 · Pre-launch scaffold.** The public surface (types, CLI shape, runner interface, rubric contract, output format) is stable. The adapter implementations are stubs. The first release with full implementations will ship alongside the inaugural Agentsia Labs benchmark, Assay-Adtech v1, targeted Q2 2026.
+**v0.2.0 · 2026-04 · Anthropic adapter live.** The public surface (types, CLI shape, runner interface, rubric contract, output format) is stable. The Anthropic Messages API adapter is implemented; OpenAI, Google, Hugging Face, and vLLM adapters are still stubs. The full cross-provider harness ships alongside the inaugural Agentsia Labs benchmark, Assay-Adtech v1, targeted Q2 2026.
 
 ## Scope
 
@@ -67,7 +67,7 @@ Each runner emits a `ModelResponse` per scenario. A `Rubric` attached to each sc
 
 | Runner id | Provider | Implementation status |
 |---|---|---|
-| `anthropic:*` | Anthropic Messages API | stub |
+| `anthropic:*` | Anthropic Messages API | implemented (v0.2) |
 | `openai:*` | OpenAI Chat Completions API | stub |
 | `google:*` | Google Gemini API (no grounding) | stub |
 | `hf:*` | Hugging Face Inference endpoint | stub |
