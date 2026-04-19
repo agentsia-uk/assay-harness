@@ -1,0 +1,19 @@
+{
+  "id": "001-echo-hello",
+  "axes": ["echo"],
+  "input": {
+    "messages": [
+      { "role": "system", "content": "You are an echo system." },
+      { "role": "user", "content": "hello" }
+    ]
+  },
+  "rubric": {
+    "kind": "programmatic",
+    "checker": "exact-match",
+    "params": { "expected": "hello", "caseInsensitive": true }
+  },
+  "meta": {
+    "source": "synthetic",
+    "note": "stub smoke test"
+  }
+}

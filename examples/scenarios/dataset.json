@@ -1,0 +1,5 @@
+{
+  "name": "example",
+  "version": "0.0.0",
+  "description": "Tiny example dataset shipped with the harness to demonstrate the scenario schema and the stub:echo runner end-to-end. Not a published Assay benchmark."
+}

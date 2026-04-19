@@ -1,0 +1,49 @@
+{
+  "name": "assay-harness",
+  "version": "0.1.0",
+  "description": "Open evaluation harness for the Agentsia Labs benchmark series.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "assay": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "assay": "tsx src/cli.ts",
+    "prepublishOnly": "pnpm build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agnt-os/assay-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agnt-os/assay-harness/issues"
+  },
+  "homepage": "https://labs.agentsia.uk"
+}

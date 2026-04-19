@@ -1,0 +1,15 @@
+{
+  "id": "002-non-empty",
+  "axes": ["format"],
+  "input": {
+    "messages": [{ "role": "user", "content": "say anything" }]
+  },
+  "rubric": {
+    "kind": "programmatic",
+    "checker": "non-empty",
+    "params": { "minChars": 1 }
+  },
+  "meta": {
+    "source": "synthetic"
+  }
+}
