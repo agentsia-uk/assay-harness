@@ -116,6 +116,11 @@ CI runs on repo-level self-hosted runners labelled `self-hosted`, `Linux`, and
 `ci`. Advisory AI review runs on repo-level self-hosted runners labelled
 `self-hosted`, `Linux`, and `ai-review`.
 
+CI installs use `pnpm install --frozen-lockfile --prefer-offline` and the
+runner-local pnpm store. Avoid remote `actions/setup-node` package caches on
+these self-hosted jobs because cache-save uploads can outweigh the work in this
+small harness.
+
 AI review runners also need outbound HTTPS access to GitHub, OpenAI, Google, and
 Anthropic endpoints. Draft PRs and fork PRs skip advisory AI review while keeping
 the workflow contexts present; CI remains the required quality gate.
