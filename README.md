@@ -110,6 +110,16 @@ pnpm build
 
 CI runs on GitHub Actions for every PR: typecheck, test, and build.
 
+### GitHub Actions cost controls
+
+CI runs on repo-level self-hosted runners labelled `self-hosted`, `Linux`, and
+`ci`. Advisory AI review runs on repo-level self-hosted runners labelled
+`self-hosted`, `Linux`, and `ai-review`.
+
+AI review runners also need outbound HTTPS access to GitHub, OpenAI, Google, and
+Anthropic endpoints. Draft PRs and fork PRs skip advisory AI review while keeping
+the workflow contexts present; CI remains the required quality gate.
+
 ## Contributing
 
 Issues and pull requests welcome. For substantive changes (new runner, new rubric type, scoring-logic changes) please open an issue first so we can discuss the shape. For typos, documentation, and small fixes please open a PR directly.

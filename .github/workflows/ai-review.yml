@@ -3,7 +3,7 @@ name: AI Code Review
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
 
 concurrency:
   group: ai-review-${{ github.event.pull_request.number }}
@@ -19,32 +19,33 @@ permissions:
 jobs:
   quality-context:
     name: Quality context
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ci]
+    outputs:
+      should_review: ${{ steps.gate.outputs.should_review }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile=false
-      - name: Typecheck
-        run: pnpm typecheck
-      - name: Test
-        run: pnpm test
-      - name: Build
-        run: pnpm build
+      - name: Decide whether advisory review should run
+        id: gate
+        env:
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "should_review=false" >> "$GITHUB_OUTPUT"
+            echo "Draft PR: advisory AI review skipped. CI owns typecheck, test, and build."
+          elif [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "should_review=false" >> "$GITHUB_OUTPUT"
+            echo "Fork PR: advisory AI review skipped because repository secrets are unavailable."
+          else
+            echo "should_review=true" >> "$GITHUB_OUTPUT"
+            echo "Ready same-repository PR: advisory AI review may run."
+          fi
 
   codex-review:
     name: Codex review
     needs: quality-context
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    if: needs.quality-context.outputs.should_review == 'true'
+    runs-on: [self-hosted, Linux, ai-review]
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     outputs:
@@ -97,7 +98,7 @@ jobs:
     name: Post Codex feedback
     needs: codex-review
     if: needs.codex-review.outputs.final_message != ''
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ci]
     steps:
       - name: Report Codex feedback
         uses: actions/github-script@v7
@@ -115,16 +116,41 @@ jobs:
   gemini-review:
     name: Gemini review
     needs: [quality-context, codex-review]
-    if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false && (needs.codex-review.result == 'success' || needs.codex-review.result == 'failure' || needs.codex-review.result == 'skipped')
-    runs-on: ubuntu-latest
+    if: always() && needs.quality-context.outputs.should_review == 'true' && (needs.codex-review.result == 'success' || needs.codex-review.result == 'failure' || needs.codex-review.result == 'skipped')
+    runs-on: [self-hosted, Linux, ai-review]
     steps:
-      - uses: actions/checkout@v4
-      - name: Fetch comments
+      - name: Check Gemini secret
+        id: config
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_CLOUD_ACCESS_TOKEN: ${{ secrets.GEMINI_CLI_OAUTH_TOKEN }}
         run: |
-          gh pr view ${{ github.event.pull_request.number }} --json comments --template '{{range .comments}}{{.author.login}}: {{.body}}{{end}}' > pr_comments.txt
+          if [ -n "$GOOGLE_CLOUD_ACCESS_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "GEMINI_CLI_OAUTH_TOKEN is not configured. Gemini review is skipped."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.enabled == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.config.outputs.enabled == 'true'
+        with:
+          node-version: '22'
+      - name: Fetch comments
+        if: steps.config.outputs.enabled == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const body = comments.map((comment) => `${comment.user.login}: ${comment.body}`).join('\n');
+            await require('node:fs/promises').writeFile('pr_comments.txt', body);
       - name: Run Gemini Review
+        if: steps.config.outputs.enabled == 'true'
         env:
           GOOGLE_CLOUD_ACCESS_TOKEN: ${{ secrets.GEMINI_CLI_OAUTH_TOKEN }}
           GEMINI_TRUST_WORKSPACE: "true"
@@ -137,16 +163,37 @@ jobs:
   claude-review:
     name: Claude review
     needs: [quality-context, gemini-review]
-    if: always() && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false && (needs.gemini-review.result == 'success' || needs.gemini-review.result == 'failure' || needs.gemini-review.result == 'skipped')
-    runs-on: ubuntu-latest
+    if: always() && needs.quality-context.outputs.should_review == 'true' && (needs.gemini-review.result == 'success' || needs.gemini-review.result == 'failure' || needs.gemini-review.result == 'skipped')
+    runs-on: [self-hosted, Linux, ai-review]
     steps:
-      - uses: actions/checkout@v4
-      - name: Fetch comments
+      - name: Check Claude secret
+        id: config
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          gh pr view ${{ github.event.pull_request.number }} --json comments --template '{{range .comments}}{{.author.login}}: {{.body}}{{end}}' > pr_comments.txt
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "CLAUDE_CODE_OAUTH_TOKEN is not configured. Claude review is skipped."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.enabled == 'true'
+      - name: Fetch comments
+        if: steps.config.outputs.enabled == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const body = comments.map((comment) => `${comment.user.login}: ${comment.body}`).join('\n');
+            await require('node:fs/promises').writeFile('pr_comments.txt', body);
       - name: Run Claude Review
+        if: steps.config.outputs.enabled == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
