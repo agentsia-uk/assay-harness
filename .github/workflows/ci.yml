@@ -15,7 +15,12 @@ permissions:
 
 jobs:
   check:
-    runs-on: [self-hosted, Linux, ci]
+    # Low-risk non-smoke ARC graduation workload for
+    # agentsia-uk/Modelsmith#2214 and agentsia-uk/Modelsmith#2296. The harness
+    # CI suite is CPU-only TypeScript validation and deterministic tests; it
+    # does not need GPU, Docker privilege, private network access, deploy
+    # credentials, or subscription-auth AI state.
+    runs-on: [self-hosted, Linux, x64, arc, arc-ci]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

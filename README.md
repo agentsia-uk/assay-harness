@@ -112,9 +112,14 @@ CI runs on GitHub Actions for every PR: typecheck, test, and build.
 
 ### GitHub Actions cost controls
 
-CI runs on repo-level self-hosted runners labelled `self-hosted`, `Linux`, and
-`ci`. Advisory AI review runs on repo-level self-hosted runners labelled
-`self-hosted`, `Linux`, and `ai-review`.
+CI runs on the ARC scale set with repo-level self-hosted runners labelled
+`self-hosted`, `Linux`, `x64`, `arc`, and `arc-ci`. This is the selected
+non-smoke ARC graduation workload for agentsia-uk/Modelsmith#2214 and
+agentsia-uk/Modelsmith#2296: typecheck, test, and build are CPU-only and do not
+need GPU, Docker privilege, private-network runtime, deploy credentials, or
+subscription-auth AI state. Collect three green CI runs before using this
+evidence to drain persistent Linux `ci` capacity. Advisory AI review runs on
+repo-level self-hosted runners labelled `self-hosted`, `Linux`, and `ai-review`.
 
 CI installs use `pnpm install --frozen-lockfile --prefer-offline` and the
 runner-local pnpm store. Avoid remote `actions/setup-node` package caches on
