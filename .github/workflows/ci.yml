@@ -6,9 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ci]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -18,7 +25,8 @@ jobs:
         with:
           node-version: '22'
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile=false
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
