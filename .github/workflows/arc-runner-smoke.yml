@@ -16,7 +16,7 @@ concurrency:
 jobs:
   smoke:
     name: ARC runner route
-    runs-on: [self-hosted, Linux, x64, arc, ci]
+    runs-on: [self-hosted, Linux, x64, arc, arc-ci]
     timeout-minutes: 5
 
     steps:
