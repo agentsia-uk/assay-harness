@@ -33,3 +33,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # Dead-code and dependency-minimalism audit (agentsia-uk/Modelsmith#2077).
+      # knip is pure static analysis: no provider API keys, no network access.
+      - run: pnpm audit:deadcode

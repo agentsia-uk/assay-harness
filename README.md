@@ -106,9 +106,46 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm audit:deadcode
 ```
 
-CI runs on GitHub Actions for every PR: typecheck, test, and build.
+CI runs on GitHub Actions for every PR: typecheck, test, build, and the
+dead-code audit.
+
+### Dead-code and dependency-minimalism audit
+
+`assay-harness` is intentionally small, public, and package-oriented: every
+exported runner, dependency, and type becomes part of the public maintenance
+surface. To keep that surface honest, `pnpm audit:deadcode` runs
+[`knip`](https://knip.dev) as a pure static-analysis pass — no provider API
+keys, no network — that reports:
+
+- source files not reachable from `src/index.ts`, the CLI, `scripts/`, or tests;
+- exported symbols that are not part of the intentional public API;
+- runtime dependencies (including provider SDKs) with no live implementation;
+- unused devDependencies.
+
+Configuration lives in `knip.json`. The command exits non-zero on any finding,
+and CI runs it after `pnpm build`.
+
+**Classifying a new runner or dependency.** When you add a provider runner:
+
+1. Export its factory (`create<Provider>Runner`) from `src/runners/index.ts`
+   and re-export it from `src/index.ts` so it is part of the public API and
+   reachable by the audit.
+2. Wire the provider into `resolveRunner()` so the CLI can dispatch to it.
+3. Add the provider SDK to `dependencies` only if a runner imports it at
+   runtime — knip will flag an SDK with no live runner as an unused
+   dependency, and a runner with no SDK import does not justify the dependency.
+4. New dependencies must be justified for a public Apache-2.0 harness: prefer
+   the official provider SDK, keep the dependency tree shallow, and avoid
+   pulling heavyweight transitive dependencies into a published package.
+
+If `knip` reports a genuine intentional public-API export that has no internal
+consumer, keep it reachable from `src/index.ts` (the package entry) rather than
+silencing it; `knip.json` uses `ignoreExportsUsedInFile` so re-exports stay
+clean. Add a targeted `ignore`/`ignoreDependencies` entry to `knip.json` only
+with a comment explaining why — never silence a real finding.
 
 ### GitHub Actions cost controls
 

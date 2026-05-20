@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.test.ts"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.ts"],
+  "ignoreExportsUsedInFile": true,
+  "github-actions": {
+    "config": [".github/workflows/ci.yml"]
+  }
+}
