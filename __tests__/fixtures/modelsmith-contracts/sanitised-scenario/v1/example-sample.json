@@ -1,0 +1,22 @@
+{
+  "id": "ASSAY_ADTECH_ADVERSARIAL_CPM_VS_REVENUE",
+  "category": "ANOMALY_DETECTION",
+  "description": "Adversarial — challenge prioritising high-CPM publisher over low-CPM publisher when B generates 2.5x more total revenue (both publishers otherwise comparable on quality signals)",
+  "testObjective": "Verify model understands total revenue matters more than CPM and can calculate actual revenue contribution, without conflating the trap with MFA detection",
+  "passCriteria": "Derives exchange value as CPM × daily impressions × 30 / 1000; computes monthly gross revenue for B (~high-six-figure) and A (~mid-six-figure) with tolerance; explains CPM is only a unit price and must be multiplied by volume/fill/quality context; addresses healthy quality signals for both publishers before choosing B on total economic value",
+  "failCriteria": "Fails if it prioritises A from the $8 CPM label alone; fails if it copies the precomputed monthly revenue numbers without explaining the formula; fails if it flags B as MFA despite the supplied healthy viewability/IVT context; fails if the only support cited is vocabulary from the scenario description",
+  "outcomeType": "fp-guard",
+  "benchmarkTier": "public_holdout",
+  "domainInput": {
+    "domain": "adtech",
+    "bidRequest": {
+      "requestDescription": "Publisher Valuation — assess which publisher is more valuable: high-CPM vs low-CPM (both with healthy quality signals)",
+      "signals": "{\"proposal\":\"Prioritise Publisher A (high CPM) over Publisher B (low CPM) — \\\"A is clearly more valuable\\\"\",\"quality_context\":\"Both publishers have passed MFA and quality audits. Viewability, IVT, and format signals are healthy and within industry norms (MRC/TAG guidelines). Evaluate purely on economic value to the exchange.\",\"publisher_data\":{\"publisher_a\":{\"avg_cpm\":\"8.00\",\"daily_impressions\":\"1.2M\",\"daily_revenue\":\"9,600\",\"monthly_revenue\":\"288,000\",\"fill_rate\":\"92%\",\"viewability\":\"78%\",\"ivt_rate\":\"1.2%\",\"formats\":\"Video\",\"dsp_demand\":\"8 DSPs\",\"growth\":\"Flat\"},\"publisher_b\":{\"avg_cpm\":\"2.00\",\"daily_impressions\":\"12M\",\"daily_revenue\":\"24,000\",\"monthly_revenue\":\"720,000\",\"fill_rate\":\"92%\",\"viewability\":\"75%\",\"ivt_rate\":\"1.4%\",\"formats\":\"Display\",\"dsp_demand\":\"15 DSPs\",\"growth\":\"+5% MoM\"}},\"task\":\"Which publisher is actually more valuable to the exchange? Explain your reasoning. Assume quality signals are healthy for both.\"}",
+      "adFormats": [
+        "adversarial",
+        "revenue",
+        "metrics"
+      ]
+    }
+  }
+}
