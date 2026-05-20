@@ -1,0 +1,128 @@
+{
+  "id": "20260520T120000-cmpt01",
+  "dataset": {
+    "name": "modelsmith-assay-adtech-compat",
+    "version": "1.2.0"
+  },
+  "runners": ["anthropic:claude-opus-4-7", "openai:gpt-5.5"],
+  "createdAt": "2026-05-20T12:00:00.000Z",
+  "responses": [
+    {
+      "runnerId": "anthropic:claude-opus-4-7",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "output": "This traffic should be flagged as invalid traffic: 100% CTR with 4ms dwell from a single datacentre ASN is a classic IVT signature.",
+      "meta": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-7",
+        "version": "2026-05-01",
+        "accessedAt": "2026-05-20T11:59:58.000Z",
+        "temperature": 0,
+        "seed": 42,
+        "latencyMs": 1840,
+        "extra": { "maxTokens": 1024 }
+      }
+    },
+    {
+      "runnerId": "anthropic:claude-opus-4-7",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_FP_GUARD_BRAND_SAFETY",
+      "output": "The placement is brand-safe. 'Shoot' here is benign sports vocabulary in a goal-scoring context; over-blocking would waste safe inventory.",
+      "meta": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-7",
+        "version": "2026-05-01",
+        "accessedAt": "2026-05-20T11:59:59.000Z",
+        "temperature": 0,
+        "latencyMs": 2010,
+        "extra": {}
+      }
+    },
+    {
+      "runnerId": "openai:gpt-5.5",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "output": "Flag this as invalid traffic. The dwell time and ASN concentration are inconsistent with valid human engagement.",
+      "meta": {
+        "provider": "openai",
+        "model": "gpt-5.5",
+        "version": "2026-04-15",
+        "accessedAt": "2026-05-20T12:00:00.000Z",
+        "temperature": 0.2,
+        "latencyMs": 1560
+      }
+    }
+  ],
+  "scores": [
+    {
+      "runnerId": "anthropic:claude-opus-4-7",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "axis": "fraud-detection",
+      "value": 1,
+      "rationale": "all terms present",
+      "judge": "programmatic:contains"
+    },
+    {
+      "runnerId": "anthropic:claude-opus-4-7",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "axis": "reasoning",
+      "value": 0.9,
+      "rationale": "cites the IVT signature correctly"
+    },
+    {
+      "runnerId": "anthropic:claude-opus-4-7",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_FP_GUARD_BRAND_SAFETY",
+      "axis": "brand-safety",
+      "value": 1,
+      "rationale": "did not over-block benign sports content",
+      "judge": "anthropic:claude-opus-4-7"
+    },
+    {
+      "runnerId": "openai:gpt-5.5",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "axis": "fraud-detection",
+      "value": 0.8,
+      "rationale": "flagged correctly but omitted the 'invalid traffic' term"
+    },
+    {
+      "runnerId": "openai:gpt-5.5",
+      "scenarioId": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "axis": "reasoning",
+      "value": 0.85,
+      "rationale": "sound but terse rationale"
+    }
+  ],
+  "aggregates": [
+    {
+      "runnerId": "anthropic:claude-opus-4-7",
+      "axes": {
+        "fraud-detection": { "mean": 1, "variance": 0, "n": 1 },
+        "reasoning": { "mean": 0.9, "variance": 0, "n": 1 },
+        "brand-safety": { "mean": 1, "variance": 0, "n": 1 }
+      },
+      "composite": 0.9667,
+      "weights": {
+        "fraud-detection": 0.3333,
+        "reasoning": 0.3333,
+        "brand-safety": 0.3333
+      }
+    },
+    {
+      "runnerId": "openai:gpt-5.5",
+      "axes": {
+        "fraud-detection": { "mean": 0.8, "variance": 0, "n": 1 },
+        "reasoning": { "mean": 0.85, "variance": 0, "n": 1 }
+      },
+      "composite": 0.825,
+      "weights": {
+        "fraud-detection": 0.5,
+        "reasoning": 0.5
+      }
+    }
+  ],
+  "meta": {
+    "harnessVersion": "0.4.0",
+    "commandLine": "assay run --dataset tests/fixtures/modelsmith-compat/assay-adtech-dataset.json --runner anthropic:claude-opus-4-7 --runner openai:gpt-5.5",
+    "env": {
+      "host": "synthetic-fixture",
+      "MODELSMITH_DOMAIN": "adtech"
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "name": "modelsmith-assay-adtech-compat",
+  "version": "1.2.0",
+  "description": "Synthetic compatibility fixture mirroring a Modelsmith Assay-Adtech dataset export. Every scenario is fully synthetic and sanitised — no private customer, publisher, or model output. Exercises the outcome-type vocabulary (tp / tn / fp-guard / fn-guard) and the capability axes a Modelsmith Assay-Adtech export populates. Consumed by assay-harness loadDataset() as the producer/consumer boundary: Modelsmith Assay-Adtech export -> assay-harness Dataset.",
+  "scenarios": [
+    {
+      "id": "ASSAY_ADTECH_COMPAT_TP_IVT_DETECTION",
+      "axes": ["fraud-detection", "reasoning"],
+      "input": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an adtech bid quality reviewer. Flag invalid traffic when the signals justify it."
+          },
+          {
+            "role": "user",
+            "content": "A synthetic supply path shows 100% click-through with 4ms dwell time across 2M impressions from a single datacentre ASN. Should this bid be flagged?"
+          }
+        ],
+        "meta": {
+          "domain": "adtech",
+          "category": "FRAUD_DETECTION"
+        }
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "contains",
+        "params": { "expected": ["invalid traffic", "flag"] }
+      },
+      "meta": {
+        "source": "synthetic",
+        "outcomeType": "tp",
+        "benchmarkTier": "public_holdout",
+        "weight": 1
+      }
+    },
+    {
+      "id": "ASSAY_ADTECH_COMPAT_TN_CLEAN_SUPPLY",
+      "axes": ["fraud-detection", "reasoning"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "A synthetic supply path shows 0.8% CTR, 14s median dwell, healthy viewability and a diverse residential ASN spread. Is this invalid traffic?"
+          }
+        ],
+        "meta": {
+          "domain": "adtech",
+          "category": "ANTI_FALSE_POSITIVE"
+        }
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "contains",
+        "params": { "expected": ["valid", "no"] }
+      },
+      "meta": {
+        "source": "synthetic",
+        "outcomeType": "tn",
+        "benchmarkTier": "public",
+        "weight": 1
+      }
+    },
+    {
+      "id": "ASSAY_ADTECH_COMPAT_FP_GUARD_BRAND_SAFETY",
+      "axes": ["brand-safety", "reasoning"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "A news article about a synthetic sports injury mentions the word 'shoot' in a goal-scoring context. Should the placement be blocked as unsafe?"
+          }
+        ],
+        "meta": {
+          "domain": "adtech",
+          "category": "BRAND_SAFETY"
+        }
+      },
+      "rubric": {
+        "kind": "llm-judge",
+        "judge": "anthropic:claude-opus-4-7",
+        "prompt": "Does the response avoid over-blocking benign sports content? Response: {response}",
+        "reference": "The placement is brand-safe; 'shoot' here is benign sports vocabulary, not violent content."
+      },
+      "meta": {
+        "source": "synthetic",
+        "outcomeType": "fp-guard",
+        "benchmarkTier": "public_holdout",
+        "weight": 1
+      }
+    },
+    {
+      "id": "ASSAY_ADTECH_COMPAT_FN_GUARD_TARGETING_COMPLIANCE",
+      "axes": ["targeting-compliance", "privacy"],
+      "input": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a targeting compliance reviewer for a synthetic exchange."
+          },
+          {
+            "role": "user",
+            "content": "A campaign requests behavioural targeting of a synthetic audience segment derived from health-condition inference without consent. Is this compliant?"
+          }
+        ],
+        "meta": {
+          "domain": "adtech",
+          "category": "PRIVACY_COMPLIANCE"
+        }
+      },
+      "rubric": {
+        "kind": "human",
+        "instructions": "Confirm the reviewer flags the consentless health-inference targeting as non-compliant and does not let it pass."
+      },
+      "meta": {
+        "source": "synthetic",
+        "outcomeType": "fn-guard",
+        "benchmarkTier": "private_holdout",
+        "weight": 2
+      }
+    }
+  ]
+}
