@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "modelsmith.assay-release-contract.v2",
+  "benchmark": "assay-adtech",
+  "corpusVersion": "0.0.0",
+  "rubricVersion": "0.0.0",
+  "generatedAt": "2026-05-15T00:00:00.000Z",
+  "scenarioSetHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "scenarioSetHashMetadata": {
+    "scenarioSetHash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "publicBundleHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provenance": {
+    "manifestVersion": "0.0.0",
+    "publicPrivateSplit": {
+      "public": 0,
+      "private": 0,
+      "privatePct": 0
+    }
+  },
+  "rubric": {
+    "version": "0.0.0",
+    "harnessDependencyIds": []
+  },
+  "scenarioCounts": {
+    "totalInManifest": 0,
+    "publicExported": 0,
+    "privateExcluded": 0
+  },
+  "harnessDependencyIds": [],
+  "claimGate": {
+    "status": "blocked",
+    "leaderboardClaimsAllowed": false,
+    "blocker": "Empty fixture for cross-repo contract validation only — never gates a real release.",
+    "gatedDomains": []
+  },
+  "scenarios": []
+}

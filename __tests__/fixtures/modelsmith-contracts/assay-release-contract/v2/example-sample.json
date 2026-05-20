@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "modelsmith.assay-release-contract.v2",
+  "benchmark": "assay-adtech",
+  "corpusVersion": "1.8.0-rc.4",
+  "rubricVersion": "1.8.0-rc.4",
+  "generatedAt": "2026-05-15T00:00:00.000Z",
+  "scenarioSetHash": "4fc9dff9cbe49af41058afc241ec77f3d4f3085a61aa41e0fe0f46ae9c7cbcd1",
+  "scenarioSetHashMetadata": {
+    "scenarioSetHash": "4fc9dff9cbe49af41058afc241ec77f3d4f3085a61aa41e0fe0f46ae9c7cbcd1",
+    "shortHash": "4fc9dff9cbe4",
+    "scenarioCount": 296,
+    "heldOutOnly": true,
+    "governanceNote": "Concrete baseline-only hash for the 296-scenario corpus (v1.8.0-rc.1 + Domains 29/30/33 + rc.2/rc.3/rc.4 reconciliation + 2026-05-13 operator-Slack-mined fn-guard batch). All Assay-Adtech baseline-only pool members are held-out by construction; frontier baselines must be regenerated against this hash before any comparable leaderboard evidence. Hash computed via `scripts/compute-scenario-set-hash.ts` (which delegates to `src/lib/eval/scenario-set-hash.ts`). Domain 28 remains gated for releaseability until ADR-098 Phase 2 persistence-grading harness coverage verifies cross-turn persistence criteria end-to-end. Audit: `npx tsx scripts/audit-scenario-provenance.ts`."
+  },
+  "publicBundleHash": "d4b0dbd69f5045e221580656d9d9259cb0ea60d532f0c93bd02f1ddbaf93891d",
+  "provenance": {
+    "manifestVersion": "1.8.0-rc.4",
+    "selectionRuleHash": "84125484100d03a59348b755ee4d9d05bc7c9f50c3b6c1e670d434bc4bbc88e7",
+    "publicPrivateSplit": {
+      "public": 113,
+      "private": 183,
+      "privatePct": 61.8
+    },
+    "councilRunReference": {
+      "runId": "v1.8.0-rc.1-final-2026-05-02T09-16Z",
+      "synthesisPath": "docs/council-review/v1.8.0-rc.1-final-2026-05-02T09-16Z/SYNTHESIS.md",
+      "context": "Most recent committed council-review artefact directory. Per-scenario rc.2 / rc.3 / rc.4 evidence references this run; the rc.* manifest mutations did not produce new council directories of their own (they were per-scenario edits cited inline in `description`). Listed here so the manifest carries one canonical pointer instead of relying on prose-only references."
+    }
+  },
+  "rubric": {
+    "version": "1.8.0-rc.4",
+    "harnessDependencyIds": [
+      "persistence-grader-v1"
+    ]
+  },
+  "scenarioCounts": {
+    "totalInManifest": 296,
+    "publicExported": 113,
+    "privateExcluded": 183
+  },
+  "harnessDependencyIds": [
+    "persistence-grader-v1"
+  ],
+  "claimGate": {
+    "status": "blocked",
+    "leaderboardClaimsAllowed": false,
+    "blocker": "2026-05-14 evidence refresh: ADR-098 Phase 2 persistence-grading harness must verify Domain 28 cross-turn persistence criteria end-to-end; the referenced v1.8.0-rc.1 council synthesis has a non-clean closed-vocabulary reconciliation with seven live-scope unknown IDs recorded in docs/council-review/v1.8.0-rc.1-final-2026-05-02T09-16Z/reconciliation.json; and frontier-baseline/proof-package leaderboard evidence must be regenerated against scenario_set_hash 4fc9dff9cbe49af41058afc241ec77f3d4f3085a61aa41e0fe0f46ae9c7cbcd1 before v1.8.0 customer or leaderboard claims.",
+    "gatedDomains": [
+      "Domain 28"
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "ASSAY_ADTECH_ADVERSARIAL_CPM_VS_REVENUE",
+      "category": "ANOMALY_DETECTION",
+      "description": "Adversarial — challenge prioritising high-CPM publisher over low-CPM publisher when B generates 2.5x more total revenue (both publishers otherwise comparable on quality signals)",
+      "testObjective": "Verify model understands total revenue matters more than CPM and can calculate actual revenue contribution, without conflating the trap with MFA detection",
+      "passCriteria": "Derives exchange value as CPM × daily impressions × 30 / 1000; computes monthly gross revenue for B (~high-six-figure) and A (~mid-six-figure) with tolerance; explains CPM is only a unit price and must be multiplied by volume/fill/quality context; addresses healthy quality signals for both publishers before choosing B on total economic value",
+      "failCriteria": "Fails if it prioritises A from the $8 CPM label alone; fails if it copies the precomputed monthly revenue numbers without explaining the formula; fails if it flags B as MFA despite the supplied healthy viewability/IVT context; fails if the only support cited is vocabulary from the scenario description",
+      "outcomeType": "fp-guard",
+      "benchmarkTier": "public_holdout",
+      "domainInput": {
+        "domain": "adtech",
+        "bidRequest": {
+          "requestDescription": "Publisher Valuation — assess which publisher is more valuable: high-CPM vs low-CPM (both with healthy quality signals)",
+          "signals": "{\"proposal\":\"Prioritise Publisher A (high CPM) over Publisher B (low CPM) — \\\"A is clearly more valuable\\\"\",\"quality_context\":\"Both publishers have passed MFA and quality audits. Viewability, IVT, and format signals are healthy and within industry norms (MRC/TAG guidelines). Evaluate purely on economic value to the exchange.\",\"publisher_data\":{\"publisher_a\":{\"avg_cpm\":\"8.00\",\"daily_impressions\":\"1.2M\",\"daily_revenue\":\"9,600\",\"monthly_revenue\":\"288,000\",\"fill_rate\":\"92%\",\"viewability\":\"78%\",\"ivt_rate\":\"1.2%\",\"formats\":\"Video\",\"dsp_demand\":\"8 DSPs\",\"growth\":\"Flat\"},\"publisher_b\":{\"avg_cpm\":\"2.00\",\"daily_impressions\":\"12M\",\"daily_revenue\":\"24,000\",\"monthly_revenue\":\"720,000\",\"fill_rate\":\"92%\",\"viewability\":\"75%\",\"ivt_rate\":\"1.4%\",\"formats\":\"Display\",\"dsp_demand\":\"15 DSPs\",\"growth\":\"+5% MoM\"}},\"task\":\"Which publisher is actually more valuable to the exchange? Explain your reasoning. Assume quality signals are healthy for both.\"}",
+          "adFormats": [
+            "adversarial",
+            "revenue",
+            "metrics"
+          ]
+        }
+      }
+    },
+    {
+      "id": "ASSAY_ADTECH_ADVERSARIAL_IVT_PARTIAL_BLOCK",
+      "category": "ANOMALY_DETECTION",
+      "description": "Adversarial — challenge blocking entire publisher with 8% IVT when 92% of traffic generates low-five-figure monthly revenue legitimately",
+      "testObjective": "Verify model recommends surgical fraud mitigation rather than blanket blocking",
+      "passCriteria": "Calculates low-five-figure revenue at risk, recommends surgical blocking, notes 8% within industry average, no full deletion",
+      "failCriteria": "Recommends full publisher block, zero tolerance without nuance, no revenue consideration",
+      "outcomeType": "fp-guard",
+      "benchmarkTier": "public_holdout",
+      "domainInput": {
+        "domain": "adtech",
+        "bidRequest": {
+          "requestDescription": "IVT Policy Assessment — evaluate proposal to fully suspend publisher with 8% IVT rate",
+          "signals": "{\"proposal\":\"Publisher Delta has 8% IVT. Zero tolerance policy. Recommend immediate full suspension.\",\"publisher_data\":{\"monthly_impressions\":\"25M\",\"ivt_rate\":\"8.0%\",\"valid_impressions\":\"23M (92%)\",\"monthly_revenue_valid\":\"50,600\",\"ivt_revenue_clawed_back\":\"4,400\",\"tenure\":\"3 years\",\"historical_ivt_avg\":\"3.2%\",\"industry_ivt_avg_tag_certified\":\"<1% (TAG Certified Against Fraud baseline — 8% is ~8-10× baseline)\",\"industry_ivt_avg_uncertified_longtail\":\"5-8% (open-exchange long-tail, NOT TAG-certified — do not conflate)\",\"previous_violations\":0,\"ivt_source\":\"60% bot traffic from 3 IP ranges\",\"content_quality\":\"Premium news site\"},\"task\":\"Should you suspend this publisher entirely? What do you recommend?\"}",
+          "adFormats": [
+            "adversarial",
+            "ivt",
+            "fraud",
+            "revenue"
+          ]
+        }
+      }
+    }
+  ]
+}

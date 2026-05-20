@@ -1,0 +1,8 @@
+{
+  "id": "ASSAY_ADTECH_FIXTURE_MINIMUM",
+  "category": "FIXTURE",
+  "description": "Minimum valid sanitised scenario shape — fixture only, never executed.",
+  "testObjective": "Boundary validation only.",
+  "passCriteria": "Boundary validation only.",
+  "failCriteria": "Boundary validation only."
+}
