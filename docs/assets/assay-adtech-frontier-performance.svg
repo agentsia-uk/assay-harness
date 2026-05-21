@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
-  <title id="title">Assay-Adtech v1 frontier baseline composite scores</title>
-  <desc id="desc">Composite scores for Claude Opus 4.7, GPT 5.5, and Gemini 3.1 Pro Preview on the primary Assay-Adtech benchmark cluster, shown against a 100 percent scale. The header uses Smith, the Modelsmith sprite.</desc>
+  <title id="title">Assay-Adtech v1 benchmark gap snapshot</title>
+  <desc id="desc">Composite scores for Claude Opus 4.7, GPT 5.5, and Gemini 3.1 Pro Preview on the primary Assay-Adtech no-tools benchmark cluster. The header uses Smith, the Modelsmith sprite.</desc>
   <defs>
     <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8f6f1"/>
@@ -37,6 +37,9 @@
       .anthropic { fill: #c96423; }
       .openai { fill: #0f766e; }
       .google { fill: #3467d6; }
+      .logoTile { stroke-width: 1.2; }
+      .logoWhite { fill: #ffffff; }
+      .logoDark { fill: #1f252e; }
     </style>
   </defs>
 
@@ -72,7 +75,7 @@
       <rect x="30" y="25" width="3" height="4" fill="#FBF8F2"/>
     </svg>
     <text class="brand" x="98" y="34">MODELSMITH</text>
-    <text class="tiny" x="101" y="63">ASSAY-ADTECH V1 FRONTIER BASELINES</text>
+    <text class="tiny" x="101" y="63">NO-TOOLS GOVERNED BENCHMARK</text>
   </g>
 
   <g transform="translate(842 70)">
@@ -85,61 +88,70 @@
     <text class="lab" x="382" y="80" text-anchor="middle">ceiling scale</text>
   </g>
 
-  <text class="headline" x="80" y="224">Frontier baseline scores against a 100% ceiling</text>
-  <text class="subhead" x="80" y="256">Composite scores from the current Modelsmith proof package for scenario-set hash 162ff7fcd8ce.</text>
+  <text class="headline" x="80" y="224">Frontier models leave a wide governed-adtech gap</text>
+  <text class="subhead" x="80" y="256">No-tools composite scores over 344 governed scenarios; 95% intervals shown against a fixed ceiling.</text>
 
   <g transform="translate(80 326)">
     <line class="grid" x1="430" y1="0" x2="430" y2="296"/>
-    <line class="grid" x1="610" y1="0" x2="610" y2="296"/>
-    <line class="grid" x1="790" y1="0" x2="790" y2="296"/>
-    <line class="grid" x1="970" y1="0" x2="970" y2="296"/>
-    <line class="grid" x1="1150" y1="0" x2="1150" y2="296"/>
-    <line class="axis" x1="430" y1="-24" x2="1150" y2="-24"/>
+    <line class="grid" x1="595" y1="0" x2="595" y2="296"/>
+    <line class="grid" x1="760" y1="0" x2="760" y2="296"/>
+    <line class="grid" x1="925" y1="0" x2="925" y2="296"/>
+    <line class="grid" x1="1090" y1="0" x2="1090" y2="296"/>
+    <line class="axis" x1="430" y1="-24" x2="1090" y2="-24"/>
     <text class="tick" x="430" y="-34" text-anchor="middle">0</text>
-    <text class="tick" x="610" y="-34" text-anchor="middle">25</text>
-    <text class="tick" x="790" y="-34" text-anchor="middle">50</text>
-    <text class="tick" x="970" y="-34" text-anchor="middle">75</text>
-    <text class="tick" x="1150" y="-34" text-anchor="middle">100</text>
+    <text class="tick" x="595" y="-34" text-anchor="middle">25</text>
+    <text class="tick" x="760" y="-34" text-anchor="middle">50</text>
+    <text class="tick" x="925" y="-34" text-anchor="middle">75</text>
+    <text class="tick" x="1090" y="-34" text-anchor="middle">100</text>
 
     <g transform="translate(0 24)">
-      <circle cx="28" cy="28" r="28" fill="#c96423"/>
-      <text x="28" y="37" text-anchor="middle" fill="#ffffff" font-size="28" font-weight="800">A</text>
+      <rect class="logoTile anthropic" x="0" y="0" width="56" height="56" rx="14"/>
+      <circle class="logoWhite" cx="28" cy="28" r="13"/>
+      <path class="anthropic" d="M28 13l3.4 9.1 9.6-1.5-6.2 7.4 6.2 7.4-9.6-1.5L28 43l-3.4-9.1-9.6 1.5 6.2-7.4-6.2-7.4 9.6 1.5z"/>
+      <circle class="logoWhite" cx="28" cy="28" r="4.8"/>
       <text class="model" x="78" y="20">Claude Opus 4.7</text>
       <text class="lab" x="78" y="46">Anthropic</text>
-      <rect class="track" x="430" y="5" width="720" height="42" rx="10"/>
-      <rect class="anthropic" x="430" y="5" width="299" height="42" rx="10"/>
-      <line class="ci" x1="692" y1="26" x2="767" y2="26"/>
-      <line class="ci" x1="692" y1="17" x2="692" y2="35"/>
-      <line class="ci" x1="767" y1="17" x2="767" y2="35"/>
-      <text class="score" x="1190" y="35">41.6%</text>
+      <rect class="track" x="430" y="5" width="660" height="42" rx="10"/>
+      <rect class="anthropic" x="430" y="5" width="275" height="42" rx="10"/>
+      <line class="ci" x1="670" y1="26" x2="739" y2="26"/>
+      <line class="ci" x1="670" y1="17" x2="670" y2="35"/>
+      <line class="ci" x1="739" y1="17" x2="739" y2="35"/>
+      <text class="score" x="1130" y="35">41.6%</text>
       <text class="scoreSmall" x="430" y="72">95% CI 36.3 to 46.8</text>
     </g>
 
     <g transform="translate(0 132)">
-      <circle cx="28" cy="28" r="28" fill="#0f766e"/>
-      <path d="M17 28c0-7 5-12 11-12s11 5 11 12-5 12-11 12-11-5-11-12zm6 0c0 4 2 7 5 7s5-3 5-7-2-7-5-7-5 3-5 7z" fill="#ffffff"/>
+      <rect class="logoTile openai" x="0" y="0" width="56" height="56" rx="14"/>
+      <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M28 16c5 0 8 3 8 8 0 3-1.2 5.2-3.6 6.8"/>
+        <path d="M36 24c4.4 2.5 5.5 6.5 3 10.8-1.5 2.6-3.7 3.9-6.5 4.1"/>
+        <path d="M39 34.8c-2.5 4.4-6.5 5.5-10.8 3-2.6-1.5-3.9-3.7-4.1-6.5"/>
+        <path d="M28.2 37.8c-5 0-8-3-8-8 0-3 1.2-5.2 3.6-6.8"/>
+        <path d="M20.2 29.8c-4.4-2.5-5.5-6.5-3-10.8 1.5-2.6 3.7-3.9 6.5-4.1"/>
+        <path d="M17.2 19c2.5-4.4 6.5-5.5 10.8-3 2.6 1.5 3.9 3.7 4.1 6.5"/>
+      </g>
       <text class="model" x="78" y="20">GPT 5.5</text>
       <text class="lab" x="78" y="46">OpenAI</text>
-      <rect class="track" x="430" y="5" width="720" height="42" rx="10"/>
-      <rect class="openai" x="430" y="5" width="291" height="42" rx="10"/>
-      <line class="ci" x1="683" y1="26" x2="759" y2="26"/>
-      <line class="ci" x1="683" y1="17" x2="683" y2="35"/>
-      <line class="ci" x1="759" y1="17" x2="759" y2="35"/>
-      <text class="score" x="1190" y="35">40.4%</text>
+      <rect class="track" x="430" y="5" width="660" height="42" rx="10"/>
+      <rect class="openai" x="430" y="5" width="267" height="42" rx="10"/>
+      <line class="ci" x1="662" y1="26" x2="731" y2="26"/>
+      <line class="ci" x1="662" y1="17" x2="662" y2="35"/>
+      <line class="ci" x1="731" y1="17" x2="731" y2="35"/>
+      <text class="score" x="1130" y="35">40.4%</text>
       <text class="scoreSmall" x="430" y="72">95% CI 35.2 to 45.6</text>
     </g>
 
     <g transform="translate(0 240)">
-      <circle cx="28" cy="28" r="28" fill="#3467d6"/>
+      <rect class="logoTile google" x="0" y="0" width="56" height="56" rx="14"/>
       <path d="M28 11l4.7 11.3L44 27l-11.3 4.7L28 43l-4.7-11.3L12 27l11.3-4.7z" fill="#ffffff"/>
       <text class="model" x="78" y="20">Gemini 3.1 Pro Preview</text>
       <text class="lab" x="78" y="46">Google</text>
-      <rect class="track" x="430" y="5" width="720" height="42" rx="10"/>
-      <rect class="google" x="430" y="5" width="268" height="42" rx="10"/>
-      <line class="ci" x1="662" y1="26" x2="736" y2="26"/>
-      <line class="ci" x1="662" y1="17" x2="662" y2="35"/>
-      <line class="ci" x1="736" y1="17" x2="736" y2="35"/>
-      <text class="score" x="1190" y="35">37.2%</text>
+      <rect class="track" x="430" y="5" width="660" height="42" rx="10"/>
+      <rect class="google" x="430" y="5" width="246" height="42" rx="10"/>
+      <line class="ci" x1="643" y1="26" x2="710" y2="26"/>
+      <line class="ci" x1="643" y1="17" x2="643" y2="35"/>
+      <line class="ci" x1="710" y1="17" x2="710" y2="35"/>
+      <text class="score" x="1130" y="35">37.2%</text>
       <text class="scoreSmall" x="430" y="72">95% CI 32.3 to 42.4</text>
     </g>
   </g>
