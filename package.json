@@ -1,7 +1,7 @@
 {
   "name": "assay-harness",
   "version": "0.4.0",
-  "description": "Open evaluation harness for the Agentsia Labs benchmark series.",
+  "description": "Open Agentsia Labs evaluation harness for Assay benchmark runners, rubric scoring, and RunRecord output.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,6 +11,7 @@
   },
   "files": [
     "dist",
+    "docs/assets",
     "LICENSE",
     "README.md"
   ],
@@ -52,5 +53,5 @@
   "bugs": {
     "url": "https://github.com/agentsia-uk/assay-harness/issues"
   },
-  "homepage": "https://labs.agentsia.uk"
+  "homepage": "https://agentsia.uk/labs/benchmarks/assay-adtech-v1"
 }
