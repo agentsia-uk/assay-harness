@@ -133,13 +133,11 @@ The benchmark claims page and release contract should be treated as the public s
 
 The SVG above is derived from the current Modelsmith production-baseline proof package for scenario-set hash `162ff7fcd8ce`. It summarizes no-tools frontier runs over the 344-scenario governed corpus.
 
-| Evaluation cluster | Claude Opus 4.7 | GPT 5.5 | Gemini 3.1 Pro Preview |
+| Benchmark cluster | Claude Opus 4.7 | GPT 5.5 | Gemini 3.1 Pro Preview |
 |---|---:|---:|---:|
 | Assay-Adtech | 41.6 | 40.4 | 37.2 |
-| Gemma 4 E2B IT comparison | 41.0 | 39.2 | 37.2 |
-| Gemma 4 E4B IT comparison | 42.4 | 39.8 | 38.4 |
 
-Scores are composite percentages. Each provider row is based on three production runs with 95 percent confidence intervals recorded in the proof package. Use the release contract before quoting any leaderboard or performance claim.
+Scores are composite percentages against a 100 percent ceiling. Each provider row is based on three production runs with 95 percent confidence intervals recorded in the proof package. Use the release contract before quoting any leaderboard or performance claim.
 
 ## Concepts
 
