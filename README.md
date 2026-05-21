@@ -8,7 +8,7 @@ Anyone can use this harness to reproduce Agentsia Labs numbers, or to score thei
 
 ## Status
 
-**v0.4.0 · 2026-04 · Every adapter live.** The public surface (types, CLI shape, runner interface, rubric contract, output format) is stable. Anthropic Messages API, OpenAI Chat Completions, Google Gemini (no grounding), Hugging Face Inference, and local vLLM adapters are all implemented. Harness is ready for the inaugural Agentsia Labs benchmark, Assay-Adtech v1, targeted Q2 2026.
+**v0.4.0 · 2026-05 · Every adapter live.** The public surface (types, CLI shape, runner interface, rubric contract, output format) is stable. Anthropic Messages API, OpenAI Chat Completions, Google Gemini (no grounding), Hugging Face Inference, and local vLLM adapters are all implemented. Harness is ready for Assay-Adtech v1, the inaugural released Agentsia Labs benchmark.
 
 ## Scope
 
