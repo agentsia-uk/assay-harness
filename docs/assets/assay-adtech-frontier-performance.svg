@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
-  <title id="title">Assay-Adtech v1 benchmark gap snapshot</title>
-  <desc id="desc">Composite scores for Claude Opus 4.7, GPT 5.5, and Gemini 3.1 Pro Preview on the primary Assay-Adtech no-tools benchmark cluster. The header uses Smith, the Modelsmith sprite.</desc>
+  <title id="title">Assay-Adtech v1 governed benchmark snapshot</title>
+  <desc id="desc">Composite scores for Claude Opus 4.7, GPT 5.5, and Gemini 3.1 Pro Preview on the primary Assay-Adtech governed benchmark cluster. The header uses Smith, the Modelsmith sprite.</desc>
   <defs>
     <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8f6f1"/>
@@ -73,7 +73,7 @@
       <rect x="30" y="25" width="3" height="4" fill="#FBF8F2"/>
     </svg>
     <text class="brand" x="98" y="34">MODELSMITH</text>
-    <text class="tiny" x="101" y="63">NO-TOOLS GOVERNED BENCHMARK</text>
+    <text class="tiny" x="101" y="63">PUBLIC HARNESS + PRIVATE HOLDOUTS</text>
   </g>
 
   <g transform="translate(842 70)">
@@ -86,8 +86,8 @@
     <text class="lab" x="382" y="80" text-anchor="middle">ceiling scale</text>
   </g>
 
-  <text class="headline" x="80" y="224">No-tools frontier baselines remain below 42%</text>
-  <text class="subhead" x="80" y="256">No-tools composite scores over 344 governed scenarios; 95% intervals shown against a fixed ceiling.</text>
+  <text class="headline" x="80" y="224">World-first open governed benchmark for agentic AI</text>
+  <text class="subhead" x="80" y="256">Labs run public scenarios in the open harness; private holdouts gate leaderboard evaluation.</text>
 
   <g transform="translate(80 326)">
     <line class="grid" x1="430" y1="0" x2="430" y2="296"/>
@@ -147,7 +147,7 @@
 
   <g transform="translate(80 690)">
     <rect x="0" y="0" width="1216" height="58" rx="14" fill="#f6f1e8" stroke="#ded4c7"/>
-    <text class="fine" x="24" y="24" font-size="14">Bars use a 0 to 100 percent scale. The unfilled track is the remaining gap to the benchmark ceiling.</text>
-    <text class="fine" x="24" y="45" font-size="14">Source: Modelsmith production-baseline proof package for Assay-Adtech v1.8.0-rc.4. Public claims must follow the release contract.</text>
+    <text class="fine" x="24" y="24" font-size="14">Composite score = weighted 0-100 average across benchmark axes; bars show the three-run mean and 95% CI.</text>
+    <text class="fine" x="24" y="45" font-size="14">Unfilled track is gap to ceiling. Source: Modelsmith proof package for Assay-Adtech v1.8.0-rc.4; claims follow the release contract.</text>
   </g>
 </svg>
