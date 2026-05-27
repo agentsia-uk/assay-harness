@@ -50,7 +50,7 @@ The GitHub source archive intentionally contains only the harness source and tin
      --out runs/local.json
    ```
 
-   `runs/local.json` is a `RunRecord` containing the raw model responses, per-scenario scores, aggregate scores, harness version, and command line.
+`runs/local.json` is a `RunRecord` containing the raw model responses, per-scenario scores, aggregate scores, harness version, and command line.
 
 4. Run a real provider model by setting the relevant key and choosing a runner id.
 
@@ -173,7 +173,19 @@ Programmatic rubrics are implemented in `src/rubric.ts` and can be extended with
 - `contains`
 - `non-empty`
 
-The public type surface also defines `llm-judge` and `human` rubric variants. They currently throw unless a release-specific evaluator implements them. This keeps the public contract visible while preventing accidental unsupported scoring.
+The public type surface also defines `llm-judge` and `human` rubric variants. Programmatic rubrics remain the default for benchmark-grade claims. LLM judges require an explicit executor, calibration evidence, prompt provenance, and passing bias checks before the harness will score them. Their scores default to `analysis-only` so they cannot silently become leaderboard claims. Human annotations are represented through a validation and adjudication contract that can export preference pairs for downstream Modelsmith training workflows.
+
+## Statistical Claim Gates
+
+`aggregate()` can attach deterministic bootstrap confidence intervals to per-axis aggregates when callers provide a confidence configuration. `comparePairedScores()` reports paired bootstrap intervals for model A versus model B on the same scenario set. Use paired intervals when deciding whether a candidate model has genuinely improved over a baseline. Small deltas without interval support should be treated as descriptive, not as a promotion claim.
+
+## Scenario Diagnostics
+
+`analyseScenarioItems()` reports item-level pass rates, outcome-type coverage, and possible leakage when scenario prompts overlap known training prompts. `compareScenarioSets()` reports added, removed, changed, and suspiciously overlapping scenarios between dataset versions. These diagnostics are intended to help Modelsmith decide whether to generate new training scenarios, revise weak eval items, or block contaminated training data.
+
+## Interoperability
+
+`exportInspectRunRecord()` and `exportLmEvaluationSummary()` convert native Assay records into external-eval-friendly shapes for Inspect and lm-evaluation-harness style workflows. Native Assay records remain the source of truth because they preserve scenario hashes, privacy classification, scorer metadata, and Modelsmith release boundaries.
 
 ## Development
 

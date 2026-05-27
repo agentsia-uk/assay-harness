@@ -39,6 +39,12 @@ export interface LLMJudgeRubric {
   prompt: string
   /** Reference answer, if any, for the judge to compare against. */
   reference?: string
+  /** Calibration evidence required before the harness will call a judge. */
+  calibration?: JudgeCalibration
+  /** Bias probes that were run against the judge prompt/model pair. */
+  biasChecks?: JudgeBiasCheck[]
+  /** Defaults to analysis-only so judged scores cannot silently become claims. */
+  claimPolicy?: 'analysis-only' | 'benchmark-eligible'
 }
 
 export interface HumanRubric {
@@ -105,12 +111,15 @@ export interface Score {
   value: number
   rationale?: string
   judge?: string
+  judgeProvenance?: JudgeProvenance
+  claimStatus?: 'programmatic' | 'analysis-only' | 'benchmark-eligible'
 }
 
 export interface AxisAggregate {
   mean: number
   variance: number
   n: number
+  confidenceInterval?: ConfidenceInterval
 }
 
 export interface ModelAggregate {
@@ -120,6 +129,7 @@ export interface ModelAggregate {
   composite: number
   /** Weighting rationale; published alongside the release. */
   weights: Record<string, number>
+  statisticalClaims?: StatisticalClaimMetadata
 }
 
 export interface RunRecord {
@@ -140,4 +150,99 @@ export interface RunRecord {
     /** Additional run-level context: host, env flags, etc. */
     env?: Record<string, unknown>
   }
+}
+
+export interface ConfidenceInterval {
+  method: 'bootstrap' | 'paired-bootstrap'
+  lower: number
+  upper: number
+  confidenceLevel: number
+  iterations: number
+  seed: number
+  n: number
+}
+
+export interface StatisticalClaimMetadata {
+  method: 'bootstrap'
+  confidenceLevel: number
+  iterations: number
+  seed: number
+  sampleUnit: 'score'
+}
+
+export interface PairedComparison {
+  baselineRunnerId: string
+  candidateRunnerId: string
+  delta: number
+  n: number
+  confidenceInterval: ConfidenceInterval
+}
+
+export interface JudgeCalibration {
+  setId: string
+  minimumAgreement: number
+  observedAgreement: number
+  promptHash: string
+}
+
+export interface JudgeBiasCheck {
+  kind: 'position' | 'verbosity' | 'refusal' | 'label-order'
+  passed: boolean
+  detail?: string
+}
+
+export interface JudgeProvenance {
+  provider: string
+  model: string
+  promptHash: string
+  rubricVersion: string
+  parserVersion: string
+  judgedAt: string
+}
+
+export interface LLMJudgeResult {
+  value: number
+  rationale?: string
+  provenance?: JudgeProvenance
+}
+
+export type LLMJudgeExecutor = (
+  request: {
+    response: ModelResponse
+    scenario: Scenario
+    rubric: LLMJudgeRubric
+    renderedPrompt: string
+  },
+) => Promise<LLMJudgeResult> | LLMJudgeResult
+
+export interface HumanAnnotation {
+  itemId: string
+  scenarioHash: string
+  responseId: string
+  label: 'pass' | 'fail' | 'tie' | 'invalid'
+  score: number
+  reviewer: string
+  rubricVersion: string
+  annotatedAt: string
+  status: 'pending' | 'agreed' | 'conflicted' | 'adjudicated' | 'rejected'
+  rationale?: string
+}
+
+export interface HumanAnnotationValidation {
+  valid: boolean
+  errors: string[]
+  conflicts: Array<{
+    itemId: string
+    responseId: string
+    labels: string[]
+  }>
+}
+
+export interface PreferencePair {
+  itemId: string
+  scenarioHash: string
+  chosenResponseId: string
+  rejectedResponseId: string
+  source: 'human-annotation'
+  rubricVersion: string
 }
