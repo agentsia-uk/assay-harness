@@ -23,6 +23,22 @@ jobs:
     runs-on: [self-hosted, Linux, x64, arc, arc-ci]
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch Modelsmith cross-repo contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dest="${GITHUB_WORKSPACE}/../Modelsmith/config/cross-repo-release-contract.json"
+          if [ ! -f "$dest" ]; then
+            mkdir -p "$(dirname "$dest")"
+            if gh api repos/agentsia-uk/Modelsmith/contents/config/cross-repo-release-contract.json \
+              --jq '.content' | base64 -d > "$dest"; then
+              echo "Fetched Modelsmith cross-repo contract"
+            else
+              rm -f "$dest"
+              echo "::warning::Unable to fetch private Modelsmith contract with this repo token; validator will run offline CI-signal checks."
+            fi
+          fi
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -30,6 +46,8 @@ jobs:
         with:
           node-version: '22'
       - run: pnpm install --frozen-lockfile --prefer-offline
+      - run: pnpm lint
+      - run: pnpm contracts:cross-repo
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
