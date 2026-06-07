@@ -1,6 +1,7 @@
 import type { InferenceClient } from '@huggingface/inference'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
+import { withRetry } from '../retry.js'
 
 /**
  * Minimal Hugging Face client contract the runner depends on. Kept narrow so
@@ -102,7 +103,7 @@ export function createHuggingFaceRunner(
 
       let apiResponse: HFChatCompletionResponse
       try {
-        apiResponse = await client.chatCompletion(params)
+        apiResponse = await withRetry(() => client.chatCompletion(params))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(

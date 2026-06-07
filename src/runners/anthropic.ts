@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
+import { withRetry } from '../retry.js'
 
 /**
  * Minimal Anthropic client contract the runner depends on. Kept narrow so
@@ -96,7 +97,7 @@ export function createAnthropicRunner(
 
       let apiResponse: MessagesCreateResponse
       try {
-        apiResponse = await client.messages.create(params)
+        apiResponse = await withRetry(() => client.messages.create(params))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(
