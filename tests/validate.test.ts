@@ -44,7 +44,7 @@ describe('validateRunRecord', () => {
 
   it('reports missing id', () => {
     const r = minimalRecord()
-    delete (r as Record<string, unknown>)['id']
+    delete (r as unknown as Record<string, unknown>)['id']
     const result = validateRunRecord(r)
     expect(result.valid).toBe(false)
     expect(result.errors.some((e) => e.includes('RunRecord.id'))).toBe(true)

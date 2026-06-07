@@ -1,10 +1,4 @@
-import type {
-  RunRecord,
-  ModelResponse,
-  Score,
-  ModelAggregate,
-  AxisAggregate,
-} from './types.js'
+import type { RunRecord } from './types.js'
 
 export interface ValidationResult {
   valid: boolean
