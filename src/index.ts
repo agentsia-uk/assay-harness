@@ -15,6 +15,8 @@ export { withJudgeCache } from './judge-cache.js'
 export type { JudgeCacheOptions } from './judge-cache.js'
 export { compareRuns, formatCompareTable } from './compare.js'
 export type { ScenarioComparison, CompareResult } from './compare.js'
+export { createStderrLogger, createNullLogger } from './progress.js'
+export type { ProgressEvent, ProgressLogger } from './progress.js'
 export {
   resolveRunner,
   createStubRunner,
