@@ -71,7 +71,7 @@ program
       }
       const tasks = dataset.scenarios.map((scenario) => async () => {
         const response = await runner.run(scenario, runnerOpts)
-        const scenarioScores = score(response, scenario, llmJudge ? { llmJudge } : {})
+        const scenarioScores = await score(response, scenario, llmJudge ? { llmJudge } : {})
         console.log(`[${runner.id}] ${scenario.id} done`)
         return { response, scores: scenarioScores }
       })
@@ -81,7 +81,7 @@ program
           throw result.reason as Error
         }
         responses.push(result.value.response)
-        scores.push(...(await result.value.scores))
+        scores.push(...result.value.scores)
       }
     }
 

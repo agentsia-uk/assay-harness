@@ -11,11 +11,13 @@ export interface JudgeCacheOptions {
   ttlMs?: number
 }
 
-function cacheKey(judge: string, rubricContent: string, text: string): string {
+function cacheKey(judge: string, rubricPrompt: string, reference: string, text: string): string {
   return createHash('sha256')
     .update(judge)
     .update('\x00')
-    .update(rubricContent)
+    .update(rubricPrompt)
+    .update('\x00')
+    .update(reference)
     .update('\x00')
     .update(text)
     .digest('hex')
@@ -35,7 +37,7 @@ export function withJudgeCache(
 
   return async (request) => {
     const { rubric, response } = request
-    const key = cacheKey(rubric.judge, rubric.prompt, response.output)
+    const key = cacheKey(rubric.judge, rubric.prompt, rubric.reference ?? '', response.output)
     const file = join(dir, `${key}.json`)
 
     try {
