@@ -30,6 +30,18 @@ function meanByScenario(scores: Score[]): Map<string, number> {
 }
 
 export function compareRuns(run1: RunRecord, run2: RunRecord): CompareResult {
+  if (run1.runners.length > 1) {
+    throw new Error(
+      `compareRuns: run1 (${run1.id}) contains multiple runners [${run1.runners.join(', ')}]. ` +
+        'Filter to a single runner before comparing.',
+    )
+  }
+  if (run2.runners.length > 1) {
+    throw new Error(
+      `compareRuns: run2 (${run2.id}) contains multiple runners [${run2.runners.join(', ')}]. ` +
+        'Filter to a single runner before comparing.',
+    )
+  }
   const map1 = meanByScenario(run1.scores)
   const map2 = meanByScenario(run2.scores)
   const allIds = [...new Set([...map1.keys(), ...map2.keys()])].sort()
