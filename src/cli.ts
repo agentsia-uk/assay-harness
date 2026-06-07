@@ -13,6 +13,7 @@ import { redactCommandLine } from './redact.js'
 import { pooled } from './concurrency.js'
 import { withJudgeCache } from './judge-cache.js'
 import { compareRuns, formatCompareTable } from './compare.js'
+import { createStderrLogger } from './progress.js'
 import type { LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -51,6 +52,18 @@ program
     const dataset = await loadDataset(opts.dataset)
     const runnerIds = Array.isArray(opts.runner) ? opts.runner : [opts.runner]
     const runners = runnerIds.map((id) => resolveRunner(id))
+    const log = createStderrLogger()
+    const runId = newRunId()
+    const at = () => new Date().toISOString()
+
+    log.emit({
+      event: 'run:start',
+      runId,
+      dataset: dataset.name,
+      runners: runners.map((r) => r.id),
+      scenarioCount: dataset.scenarios.length,
+      at: at(),
+    })
 
     let llmJudge: LLMJudgeExecutor | undefined
     if (opts.cacheJudges) {
@@ -65,15 +78,31 @@ program
     const scores: Score[] = []
 
     for (const runner of runners) {
-      console.log(`[${runner.id}] running ${dataset.scenarios.length} scenarios (concurrency=${opts.concurrency})`)
       const runnerOpts = {
         temperature: opts.temperature,
         ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
       }
       const tasks = dataset.scenarios.map((scenario) => async () => {
-        const response = await runner.run(scenario, runnerOpts)
+        log.emit({ event: 'scenario:start', runId, runnerId: runner.id, scenarioId: scenario.id, at: at() })
+        let response: ModelResponse
+        try {
+          response = await runner.run(scenario, runnerOpts)
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err)
+          log.emit({ event: 'scenario:error', runId, runnerId: runner.id, scenarioId: scenario.id, error, at: at() })
+          throw err
+        }
         const scenarioScores = await score(response, scenario, llmJudge ? { llmJudge } : {})
-        console.log(`[${runner.id}] ${scenario.id} done`)
+        const meanScore = scenarioScores.reduce((acc, s) => acc + s.value, 0) / (scenarioScores.length || 1)
+        log.emit({
+          event: 'scenario:end',
+          runId,
+          runnerId: runner.id,
+          scenarioId: scenario.id,
+          score: meanScore,
+          latencyMs: response.meta.latencyMs,
+          at: at(),
+        })
         return { response, scores: scenarioScores }
       })
       const settled = await pooled(tasks, opts.concurrency)
@@ -88,8 +117,15 @@ program
 
     const aggregates = aggregate(scores)
 
+    log.emit({
+      event: 'run:end',
+      runId,
+      composite: Object.fromEntries(aggregates.map((a) => [a.runnerId, a.composite])),
+      at: at(),
+    })
+
     const record: RunRecord = {
-      id: newRunId(),
+      id: runId,
       dataset: { name: dataset.name, version: dataset.version },
       runners: runners.map((r) => r.id),
       createdAt: new Date().toISOString(),
