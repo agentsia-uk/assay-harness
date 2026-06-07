@@ -1,6 +1,7 @@
 import type OpenAI from 'openai'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
+import { withRetry } from '../retry.js'
 import type {
   ChatCompletionCreateParams,
   ChatCompletionMessage,
@@ -82,7 +83,7 @@ export function createVllmRunner(model: string, opts: VllmRunnerOptions = {}): R
 
       let apiResponse: ChatCompletionResponse
       try {
-        apiResponse = await client.chat.completions.create(params)
+        apiResponse = await withRetry(() => client.chat.completions.create(params))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         const hint = isConnectionError(message)

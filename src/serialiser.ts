@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import type { RunRecord } from './types.js'
+import { assertValidRunRecord } from './validate.js'
 
 /**
  * Write a RunRecord to disk as JSON. Creates parent directories as needed.
@@ -15,7 +16,9 @@ export async function writeRunRecord(path: string, record: RunRecord): Promise<v
 
 export async function readRunRecord(path: string): Promise<RunRecord> {
   const raw = await readFile(path, 'utf8')
-  return JSON.parse(raw) as RunRecord
+  const parsed: unknown = JSON.parse(raw)
+  assertValidRunRecord(parsed)
+  return parsed
 }
 
 /**
