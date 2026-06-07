@@ -10,6 +10,7 @@ import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
 import { writeRunRecord, newRunId } from './serialiser.js'
 import { redactCommandLine } from './redact.js'
+import { pooled } from './concurrency.js'
 import type { ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -41,6 +42,7 @@ program
   .option('-o, --out <path>', 'output RunRecord JSON path', 'runs/latest.json')
   .option('-t, --temperature <n>', 'temperature', parseFloat, 0)
   .option('--seed <n>', 'seed (where supported)', parseIntSafe)
+  .option('--concurrency <n>', 'max parallel scenarios per runner (default 3)', parseIntSafe, 3)
   .action(async (opts: RunOptions) => {
     const dataset = await loadDataset(opts.dataset)
     const runnerIds = Array.isArray(opts.runner) ? opts.runner : [opts.runner]
@@ -50,14 +52,24 @@ program
     const scores: Score[] = []
 
     for (const runner of runners) {
-      console.log(`[${runner.id}] running ${dataset.scenarios.length} scenarios`)
-      for (const scenario of dataset.scenarios) {
-        const response = await runner.run(scenario, {
-          temperature: opts.temperature,
-          ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
-        })
-        responses.push(response)
-        scores.push(...score(response, scenario))
+      console.log(`[${runner.id}] running ${dataset.scenarios.length} scenarios (concurrency=${opts.concurrency})`)
+      const runnerOpts = {
+        temperature: opts.temperature,
+        ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+      }
+      const tasks = dataset.scenarios.map((scenario) => async () => {
+        const response = await runner.run(scenario, runnerOpts)
+        const scenarioScores = score(response, scenario)
+        console.log(`[${runner.id}] ${scenario.id} done`)
+        return { response, scores: scenarioScores }
+      })
+      const settled = await pooled(tasks, opts.concurrency)
+      for (const result of settled) {
+        if (result.status === 'rejected') {
+          throw result.reason as Error
+        }
+        responses.push(result.value.response)
+        scores.push(...result.value.scores)
       }
     }
 
@@ -98,4 +110,5 @@ interface RunOptions {
   out: string
   temperature: number
   seed?: number
+  concurrency: number
 }
