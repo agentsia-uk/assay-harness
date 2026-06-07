@@ -13,6 +13,7 @@ import { redactCommandLine } from './redact.js'
 import { pooled } from './concurrency.js'
 import { withJudgeCache } from './judge-cache.js'
 import { compareRuns, formatCompareTable } from './compare.js'
+import { buildMarkdownReport, createGist } from './publish.js'
 import { createStderrLogger } from './progress.js'
 import type { LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
@@ -162,6 +163,35 @@ program
     } else {
       console.log(formatCompareTable(result))
     }
+  })
+
+program
+  .command('publish')
+  .description('publish a RunRecord as a markdown summary')
+  .argument('<run>', 'path to RunRecord JSON')
+  .option('--to <target>', 'destination: stdout or github-gist (default: stdout)', 'stdout')
+  .action(async (runPath: string, opts: { to: string }) => {
+    const record = await readRunRecord(runPath)
+    const markdown = buildMarkdownReport(record)
+
+    if (opts.to === 'github-gist') {
+      const token = process.env['GITHUB_TOKEN']
+      if (!token) {
+        process.stderr.write('GITHUB_TOKEN not set — falling back to stdout\n')
+        console.log(markdown)
+        return
+      }
+      try {
+        const gist = await createGist(markdown, record.id, token)
+        console.log(`published: ${gist.url}`)
+      } catch (err) {
+        process.stderr.write(`gist creation failed — falling back to stdout\n${String(err)}\n`)
+        console.log(markdown)
+      }
+      return
+    }
+
+    console.log(markdown)
   })
 
 await program.parseAsync(process.argv)
