@@ -27,7 +27,7 @@
     "prepublishOnly": "pnpm build"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=18"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
