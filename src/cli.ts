@@ -8,10 +8,11 @@ import { loadDataset } from './loader.js'
 import { resolveRunner } from './runners/index.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
-import { writeRunRecord, newRunId } from './serialiser.js'
+import { writeRunRecord, readRunRecord, newRunId } from './serialiser.js'
 import { redactCommandLine } from './redact.js'
 import { pooled } from './concurrency.js'
 import { withJudgeCache } from './judge-cache.js'
+import { compareRuns, formatCompareTable } from './compare.js'
 import type { LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -105,6 +106,25 @@ program
     console.log(`wrote ${opts.out}`)
     for (const a of aggregates) {
       console.log(`  ${a.runnerId.padEnd(40)} composite=${a.composite.toFixed(3)}`)
+    }
+  })
+
+program
+  .command('compare')
+  .description('diff two RunRecord JSON files, showing per-scenario score changes')
+  .argument('<run1>', 'path to first RunRecord JSON')
+  .argument('<run2>', 'path to second RunRecord JSON')
+  .option('--json', 'output result as JSON instead of a table')
+  .action(async (run1Path: string, run2Path: string, opts: { json?: boolean }) => {
+    const [run1, run2] = await Promise.all([
+      readRunRecord(run1Path),
+      readRunRecord(run2Path),
+    ])
+    const result = compareRuns(run1, run2)
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else {
+      console.log(formatCompareTable(result))
     }
   })
 
