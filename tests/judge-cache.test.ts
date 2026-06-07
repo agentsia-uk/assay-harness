@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { withJudgeCache } from '../src/judge-cache.js'
-import type { LLMJudgeExecutor, LLMJudgeResult, ModelResponse, Scenario, LLMJudgeRubric } from '../src/types.js'
+import type { LLMJudgeExecutor, ModelResponse, Scenario, LLMJudgeRubric } from '../src/types.js'
 
 function makeRequest() {
   const response: ModelResponse = {
