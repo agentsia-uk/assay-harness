@@ -1,6 +1,7 @@
 import type { GoogleGenAI } from '@google/genai'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
+import { withRetry } from '../retry.js'
 
 /**
  * Minimal Google Gemini client contract the runner depends on. Kept narrow so
@@ -136,7 +137,7 @@ export function createGoogleRunner(model: string, opts: GoogleRunnerOptions = {}
 
       let apiResponse: GenerateContentResult
       try {
-        apiResponse = await client.models.generateContent(params)
+        apiResponse = await withRetry(() => client.models.generateContent(params))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(
