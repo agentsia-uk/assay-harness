@@ -11,6 +11,8 @@ export { analyseScenarioItems, compareScenarioSets } from './diagnostics.js'
 export { exportInspectRunRecord, exportLmEvaluationSummary } from './interoperability.js'
 export { writeRunRecord, readRunRecord, newRunId } from './serialiser.js'
 export { pooled } from './concurrency.js'
+export { withJudgeCache } from './judge-cache.js'
+export type { JudgeCacheOptions } from './judge-cache.js'
 export {
   resolveRunner,
   createStubRunner,

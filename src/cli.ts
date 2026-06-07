@@ -11,7 +11,8 @@ import { aggregate } from './aggregator.js'
 import { writeRunRecord, newRunId } from './serialiser.js'
 import { redactCommandLine } from './redact.js'
 import { pooled } from './concurrency.js'
-import type { ModelResponse, RunRecord, Score } from './types.js'
+import { withJudgeCache } from './judge-cache.js'
+import type { LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgPath = resolve(here, '..', 'package.json')
@@ -43,10 +44,21 @@ program
   .option('-t, --temperature <n>', 'temperature', parseFloat, 0)
   .option('--seed <n>', 'seed (where supported)', parseIntSafe)
   .option('--concurrency <n>', 'max parallel scenarios per runner (default 3)', parseIntSafe, 3)
+  .option('--cache-judges', 'cache LLM judge calls to .cache/judge/ (TTL 24 h)')
+  .option('--cache-ttl <ms>', 'judge cache TTL in milliseconds', parseIntSafe)
   .action(async (opts: RunOptions) => {
     const dataset = await loadDataset(opts.dataset)
     const runnerIds = Array.isArray(opts.runner) ? opts.runner : [opts.runner]
     const runners = runnerIds.map((id) => resolveRunner(id))
+
+    let llmJudge: LLMJudgeExecutor | undefined
+    if (opts.cacheJudges) {
+      const identity: LLMJudgeExecutor = () => {
+        throw new Error('No LLM judge executor configured for this run.')
+      }
+      llmJudge = withJudgeCache(identity, { ttlMs: opts.cacheTtl })
+      console.log('[judge-cache] enabled — results cached to .cache/judge/')
+    }
 
     const responses: ModelResponse[] = []
     const scores: Score[] = []
@@ -59,7 +71,7 @@ program
       }
       const tasks = dataset.scenarios.map((scenario) => async () => {
         const response = await runner.run(scenario, runnerOpts)
-        const scenarioScores = score(response, scenario)
+        const scenarioScores = score(response, scenario, llmJudge ? { llmJudge } : {})
         console.log(`[${runner.id}] ${scenario.id} done`)
         return { response, scores: scenarioScores }
       })
@@ -69,7 +81,7 @@ program
           throw result.reason as Error
         }
         responses.push(result.value.response)
-        scores.push(...result.value.scores)
+        scores.push(...(await result.value.scores))
       }
     }
 
@@ -111,4 +123,6 @@ interface RunOptions {
   temperature: number
   seed?: number
   concurrency: number
+  cacheJudges?: boolean
+  cacheTtl?: number
 }
