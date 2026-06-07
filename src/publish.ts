@@ -33,7 +33,7 @@ export function buildMarkdownReport(record: RunRecord): string {
       for (const agg of record.aggregates) {
         const cells = [
           `| \`${agg.runnerId}\``,
-          ...allAxes.map((a) => ` ${(agg.axes[a]?.mean ?? 0).toFixed(4)}`),
+          ...allAxes.map((a) => ` ${agg.axes[a] !== undefined ? agg.axes[a].mean.toFixed(4) : 'N/A'}`),
           '|',
         ]
         lines.push(cells.join(' |'))
