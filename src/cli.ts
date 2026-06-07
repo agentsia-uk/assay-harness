@@ -9,6 +9,7 @@ import { resolveRunner } from './runners/index.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
 import { writeRunRecord, newRunId } from './serialiser.js'
+import { redactCommandLine } from './redact.js'
 import type { ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -72,7 +73,7 @@ program
       aggregates,
       meta: {
         harnessVersion: pkg.version,
-        commandLine: process.argv.slice(1).join(' '),
+        commandLine: redactCommandLine(process.argv.slice(1)),
       },
     }
 
