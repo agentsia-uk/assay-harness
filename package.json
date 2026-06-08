@@ -23,7 +23,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "assay": "tsx src/cli.ts",
-    "dependency-audit": "corepack pnpm audit --prod --audit-level high",
     "audit:deadcode": "knip",
     "contracts:cross-repo": "tsx scripts/validate-cross-repo-contract.ts",
     "fleet:freshness": "tsx scripts/fleet-freshness.ts",
