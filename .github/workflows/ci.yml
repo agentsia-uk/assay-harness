@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fetch Modelsmith cross-repo contract
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MODELSMITH_CONTRACT_READ_TOKEN || github.token }}
         run: |
           set -euo pipefail
           dest="${GITHUB_WORKSPACE}/../Modelsmith/config/cross-repo-release-contract.json"
@@ -36,7 +36,7 @@ jobs:
               echo "Fetched Modelsmith cross-repo contract"
             else
               rm -f "$dest"
-              echo "::error::Unable to fetch private Modelsmith contract with this repo token; fail closed so Assay-Harness cannot be recorded as fully adopted on offline CI-signal checks."
+              echo "::error::Unable to fetch private Modelsmith contract. Configure MODELSMITH_CONTRACT_READ_TOKEN with read-only access to agentsia-uk/Modelsmith, or fix the repository token permissions; fail closed so Assay-Harness cannot be recorded as fully adopted on offline CI-signal checks."
               exit 1
             fi
           fi
