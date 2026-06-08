@@ -36,7 +36,8 @@ jobs:
               echo "Fetched Modelsmith cross-repo contract"
             else
               rm -f "$dest"
-              echo "::warning::Unable to fetch private Modelsmith contract with this repo token; validator will run offline CI-signal checks."
+              echo "::error::Unable to fetch private Modelsmith contract with this repo token; fail closed so Assay-Harness cannot be recorded as fully adopted on offline CI-signal checks."
+              exit 1
             fi
           fi
       - uses: pnpm/action-setup@v4

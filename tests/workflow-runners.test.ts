@@ -31,6 +31,15 @@ describe('GitHub Actions runner routing', () => {
     expect(block).not.toContain('runs-on: [self-hosted, Linux, ci]')
   })
 
+  it('fails closed if the private Modelsmith quality contract cannot be fetched', () => {
+    const block = extractJobBlock(workflowBody('ci.yml'), 'check')
+
+    expect(block).toContain('gh api repos/agentsia-uk/Modelsmith/contents/config/cross-repo-release-contract.json')
+    expect(block).toContain('Unable to fetch private Modelsmith contract')
+    expect(block).toContain('exit 1')
+    expect(block).not.toContain('validator will run offline CI-signal checks')
+  })
+
   it('keeps advisory AI review on the subscription runner lane', () => {
     const body = workflowBody('ai-review.yml')
 
