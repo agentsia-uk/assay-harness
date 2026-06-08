@@ -82,10 +82,9 @@ function main(): void {
   const workflowText = readWorkflowText();
 
   if (!existsSync(contractPath)) {
-    warnings.push(
-      `Modelsmith cross-repo contract not found at ${contractPath}; running offline Assay-Harness CI-signal checks`,
+    errors.push(
+      `Modelsmith cross-repo contract not found at ${contractPath}; Assay-Harness must validate against an authoritative contract read before Modelsmith#3953 can flip fail-closed`,
     );
-    validateLocalCiSignals(workflowText, errors);
     report(errors, warnings);
     return;
   }
@@ -131,17 +130,6 @@ function main(): void {
   }
 
   report(errors, warnings);
-}
-
-function validateLocalCiSignals(workflowText: string, errors: string[]): void {
-  for (const gate of ['lint', 'typecheck', 'secrets-scan']) {
-    if (!deployedGate(workflowText, gate)) {
-      errors.push(`Assay-Harness CI must deploy '${gate}' before Modelsmith#3953 can flip fail-closed`);
-    }
-  }
-  if (!/validate-cross-repo-contract|pnpm(?: run)?\s+contracts:cross-repo/.test(workflowText)) {
-    errors.push('Assay-Harness CI must run the cross-repo contract validator');
-  }
 }
 
 function report(errors: string[], warnings: string[]): void {
