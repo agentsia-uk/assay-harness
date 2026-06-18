@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  ws@>=8.0.0 <8.21.0: '>=8.21.0'
+
 importers:
 
   .:
@@ -22,7 +25,7 @@ importers:
         version: 12.1.0
       openai:
         specifier: ^6.34.0
-        version: 6.34.0(ws@8.20.0)(zod@4.4.3)
+        version: 6.34.0(ws@8.21.0)(zod@4.4.3)
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.4
@@ -1356,7 +1359,7 @@ packages:
     resolution: {integrity: sha512-yEr2jdGf4tVFYG6ohmr3pF6VJuveP0EA/sS8TBx+4Eq5NT10alu5zg2dmxMXMgqpihRDQlFGpRt2XwsGj+Fyxw==}
     hasBin: true
     peerDependencies:
-      ws: ^8.18.0
+      ws: '>=8.21.0'
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
       ws:
@@ -1638,8 +1641,8 @@ packages:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
 
-  ws@8.20.0:
-    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -1886,7 +1889,7 @@ snapshots:
       google-auth-library: 10.6.2
       p-retry: 4.6.2
       protobufjs: 7.6.2
-      ws: 8.20.0
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -2740,9 +2743,9 @@ snapshots:
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
 
-  openai@6.34.0(ws@8.20.0)(zod@4.4.3):
+  openai@6.34.0(ws@8.21.0)(zod@4.4.3):
     optionalDependencies:
-      ws: 8.20.0
+      ws: 8.21.0
       zod: 4.4.3
 
   optionator@0.9.4:
@@ -3057,7 +3060,7 @@ snapshots:
 
   word-wrap@1.2.5: {}
 
-  ws@8.20.0: {}
+  ws@8.21.0: {}
 
   yaml@2.9.0: {}
 

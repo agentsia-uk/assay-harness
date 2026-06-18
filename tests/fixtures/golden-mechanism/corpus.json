@@ -1,0 +1,95 @@
+{
+  "name": "assay-golden-mechanism",
+  "version": "1.0.0-golden",
+  "description": "Pinned ADTECH-shaped mechanism mini-corpus for the golden reproducibility self-test (assay-harness#54). Public scoring RULES only — no private answer-key fields. Changing this file or the pinned outputs changes the asserted composite and is a deliberate, reviewed event.",
+  "scenarios": [
+    {
+      "id": "ivt-flag",
+      "axes": ["mechanism"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "A placement shows a 92% click-through rate from a single /24 subnet over 3 minutes. Decide whether this is invalid traffic and what to do."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "mechanism",
+        "quantitative": [{ "label": "ctr-92", "matchers": ["92%", "/0\\.92/"] }],
+        "disambiguation": [
+          {
+            "label": "not-legit-spike",
+            "matchers": ["/single\\s+/24/", "/one\\s+subnet/", "distinct from a genuine"]
+          }
+        ],
+        "actions": [{ "label": "flag-suppress", "matchers": ["/flag/", "/suppress/", "/block/"] }],
+        "bingoTokens": ["invalid traffic", "fraud", "bot"]
+      }
+    },
+    {
+      "id": "attribution-split",
+      "axes": ["mechanism"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Video drove 65% of assisted conversions and search 35%. The current model is last-click. Recommend an attribution change and how to validate it."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "mechanism",
+        "quantitative": [{ "label": "split-65-35", "matchers": ["65%", "/0\\.65/", "35%"] }],
+        "disambiguation": [
+          {
+            "label": "reject-last-click",
+            "matchers": ["/distinct from last[- ]click/", "/rather than last[- ]click/", "/not last[- ]click/"]
+          }
+        ],
+        "actions": [{ "label": "validate", "matchers": ["/lift study/", "/holdout/", "/incrementality test/"] }],
+        "bingoTokens": ["attribution", "fractional"]
+      }
+    },
+    {
+      "id": "floor-raise",
+      "axes": ["mechanism"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "On a PMP deal, win rate is 98% at a £2.10 bid floor and clearing prices cluster at £2.12. Is the floor mispriced and what is the move?"
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "mechanism",
+        "quantitative": [{ "label": "floor-210", "matchers": ["/2\\.10/", "/2\\.12/", "98%"] }],
+        "disambiguation": [
+          {
+            "label": "pmp-not-open",
+            "matchers": ["/pmp/", "/private marketplace/", "distinct from open exchange"]
+          }
+        ],
+        "actions": [{ "label": "raise-floor", "matchers": ["/raise the floor/", "/increase the floor/", "/raise.*floor.*to/"] }],
+        "bingoTokens": ["floor", "win rate"]
+      }
+    }
+  ],
+  "outputs": {
+    "model:strong": {
+      "ivt-flag": "A 92% CTR concentrated in a single /24 subnet over three minutes is distinct from a genuine engagement spike, which would spread across many networks. This is invalid traffic. Flag the placement and suppress those bids.",
+      "attribution-split": "Move off last-click. The data shows 65% of assisted conversions from video and 35% from search, which is distinct from last-click crediting only the final touch. Reallocate credit on a 65/35 basis and validate with a holdout lift study before locking it in.",
+      "floor-raise": "On this PMP deal a 98% win rate with clearing prices at £2.12 against a £2.10 floor means the floor is below clearing. PMP economics differ from the open exchange, so raise the floor toward £2.12 to capture the surplus."
+    },
+    "model:bingo": {
+      "ivt-flag": "This looks like classic invalid traffic, possibly bot or fraud related.",
+      "attribution-split": "We recommend a fractional attribution approach instead of the current setup.",
+      "floor-raise": "The floor and win rate suggest you should review your pricing."
+    }
+  },
+  "expectedComposites": {
+    "model:strong": 1.0,
+    "model:bingo": 0.2
+  }
+}
