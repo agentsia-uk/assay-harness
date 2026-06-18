@@ -20,6 +20,7 @@ export interface ScenarioInput {
 
 export type Rubric =
   | ProgrammaticRubric
+  | MechanismRubric
   | LLMJudgeRubric
   | HumanRubric
 
@@ -29,6 +30,36 @@ export interface ProgrammaticRubric {
   checker: string
   /** Arbitrary params consumed by the checker (e.g. expected value). */
   params?: Record<string, unknown>
+}
+
+/**
+ * A single mechanism gate as authored in scenario JSON. `matchers` are plain
+ * strings; a value wrapped in `/.../flags` is treated as a regex source, any
+ * other value is a literal phrase (negation-aware, word-edge anchored).
+ */
+export interface MechanismGateSpec {
+  /** Friendly label surfaced in the rationale when the gate is missed. */
+  label: string
+  matchers: string[]
+}
+
+/**
+ * Executable, anti-bingo mechanism rubric (assay-harness#54, council
+ * `assay-harness-review-2026-06-18` Tier-2 #5). Scores a response on
+ * quantitative / disambiguation / action gates and hard-caps pure
+ * vocabulary-echo answers at 0.2. The gates describe the *shape* of a correct
+ * mechanism, not a per-scenario answer key — see src/mechanism.ts.
+ */
+export interface MechanismRubric {
+  kind: 'mechanism'
+  /** Quantitative gates — the load-bearing magnitude / id must surface. */
+  quantitative: MechanismGateSpec[]
+  /** Disambiguation gates — distinguish correct from plausible-but-wrong. */
+  disambiguation: MechanismGateSpec[]
+  /** Concrete, signal-derived action gates. */
+  actions: MechanismGateSpec[]
+  /** Vocabulary tokens that, echoed alone, trip the anti-bingo cap. */
+  bingoTokens: string[]
 }
 
 export interface LLMJudgeRubric {

@@ -188,6 +188,11 @@ describe('modelsmith-compat: Assay-Adtech export -> assay-harness Dataset', () =
         expect(typeof rubric.prompt, `[${DATASET_BOUNDARY}] LLMJudgeRubric.prompt`).toBe(
           'string',
         )
+      } else if (rubric.kind === 'mechanism') {
+        expect(
+          Array.isArray(rubric.quantitative),
+          `[${DATASET_BOUNDARY}] MechanismRubric.quantitative`,
+        ).toBe(true)
       } else {
         expect(
           typeof rubric.instructions,

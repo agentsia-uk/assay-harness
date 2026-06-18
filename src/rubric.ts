@@ -2,12 +2,15 @@ import type {
   HumanAnnotation,
   HumanAnnotationValidation,
   LLMJudgeExecutor,
+  MechanismRubric,
   ModelResponse,
   PreferencePair,
   Rubric,
   Scenario,
   Score,
 } from './types.js'
+import { coerceCriteria, scoreMechanism } from './mechanism.js'
+import { containsUnnegatedMatch } from './matchers.js'
 
 type Checker = (
   response: ModelResponse,
@@ -40,7 +43,12 @@ const checkers: Record<string, Checker> = {
   },
 
   /**
-   * contains: response must contain every string in params.expected (array).
+   * contains (SMOKE-TEST ONLY): naive substring presence. Kept for end-to-end
+   * harness smoke tests, NOT for headline scoring. It is sign-blind — it credits
+   * "this is NOT invalid traffic" for an "invalid traffic" term — so anything
+   * graded against a leaderboard MUST use the negation-aware `keyword` checker
+   * or a `mechanism` rubric. See assay-harness#54 / council
+   * `assay-harness-review-2026-06-18` Tier-1 #1.
    */
   contains: (response, _scenario, params = {}) => {
     const expected = Array.isArray(params['expected'])
@@ -50,7 +58,32 @@ const checkers: Record<string, Checker> = {
     const missing = expected.filter((s) => !haystack.includes(s.toLowerCase()))
     return {
       value: expected.length === 0 ? 1 : 1 - missing.length / expected.length,
-      rationale: missing.length === 0 ? 'all terms present' : `missing: ${missing.join(', ')}`,
+      rationale:
+        (missing.length === 0 ? 'all terms present' : `missing: ${missing.join(', ')}`) +
+        ' [smoke-test-only: not negation-aware]',
+    }
+  },
+
+  /**
+   * keyword: negation-aware, word-edge replacement for `contains`. A term only
+   * counts if it appears in a clause that is NOT locally negated, so
+   * "do NOT flag" does not satisfy a `flag` term. Score is the fraction of
+   * required terms with at least one un-negated, word-edge match.
+   */
+  keyword: (response, _scenario, params = {}) => {
+    const expected = Array.isArray(params['expected'])
+      ? (params['expected'] as string[])
+      : []
+    if (expected.length === 0) return { value: 1, rationale: 'no terms required' }
+    const missing = expected.filter(
+      (term) => !containsUnnegatedMatch(response.output, [term]),
+    )
+    return {
+      value: 1 - missing.length / expected.length,
+      rationale:
+        missing.length === 0
+          ? 'all terms present (un-negated)'
+          : `missing or negated: ${missing.join(', ')}`,
     }
   },
 
@@ -146,6 +179,12 @@ function applyRubric(
         claimStatus: 'programmatic',
       }
     }
+    case 'mechanism': {
+      return {
+        ...scoreMechanismRubric(rubric, response),
+        claimStatus: 'programmatic',
+      }
+    }
     case 'llm-judge': {
       if (!options.llmJudge) {
         throw new Error(
@@ -186,6 +225,25 @@ function applyRubric(
         `rubric: human evaluation requires the panel annotation interface (not in v0).`,
       )
   }
+}
+
+/**
+ * Score a `mechanism` rubric against a response. Deterministic and code-based,
+ * so it carries claimStatus 'programmatic'. See src/mechanism.ts for the gate
+ * semantics and the anti-bingo cap.
+ */
+function scoreMechanismRubric(
+  rubric: MechanismRubric,
+  response: ModelResponse,
+): { value: number; rationale: string } {
+  const criteria = coerceCriteria({
+    quantitative: rubric.quantitative,
+    disambiguation: rubric.disambiguation,
+    actions: rubric.actions,
+    bingoTokens: rubric.bingoTokens,
+  })
+  const result = scoreMechanism(response.output, criteria)
+  return { value: result.value, rationale: result.rationale }
 }
 
 /**
