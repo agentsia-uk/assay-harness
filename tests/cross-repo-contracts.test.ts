@@ -20,10 +20,14 @@ import { describe, expect, it } from 'vitest'
 import {
   CrossRepoContractError,
   ClaimGateBlockedError,
+  CorpusIdentityCollisionError,
+  assertCorpusIdentityUniqueness,
   assertLeaderboardClaimAllowed,
+  isShapeOnlyContract,
   loadAssayReleaseContractV2,
   validateAssayReleaseContractV2,
   validateSanitisedScenarioV1,
+  type AssayReleaseContractV2,
 } from './cross-repo-contract-validator.js'
 
 import assayReleaseMinimum from '../__tests__/fixtures/modelsmith-contracts/assay-release-contract/v2/example-minimum.json'
@@ -122,6 +126,63 @@ describe('claimGate refusal — blocked status', () => {
       forLeaderboardClaim: true,
     })
     expect(contract.claimGate.status).toBe('allowed')
+  })
+})
+
+describe('corpus-identity uniqueness — a version tag pins a unique (count, hash)', () => {
+  // The byte-aligned v2 sample fixture declares scenarioCount 296 / hash 4fc9…
+  // but ships only 2 illustrative scenarios inline. That makes it a SHAPE-only
+  // fixture, NOT a competing corpus identity. The README's current live corpus
+  // is 344 / hash 162ff…, also tagged 1.8.0-rc.4 — these would collide if the
+  // fixture were read as a real corpus.
+  const liveCorpus: AssayReleaseContractV2 = {
+    ...(validateAssayReleaseContractV2(assayReleaseSample)),
+    scenarioSetHash:
+      '162ff7fcd8ce4266af8848938b3fc6415000843e0901651456d3fa4191fc65b6',
+    scenarioSetHashMetadata: {
+      ...(validateAssayReleaseContractV2(assayReleaseSample).scenarioSetHashMetadata),
+      scenarioSetHash:
+        '162ff7fcd8ce4266af8848938b3fc6415000843e0901651456d3fa4191fc65b6',
+      scenarioCount: 344,
+    },
+    scenarioCounts: { totalInManifest: 344, publicExported: 113, privateExcluded: 231 },
+  }
+
+  it('flags the byte-aligned v2 sample as a shape-only fixture', () => {
+    const shape = validateAssayReleaseContractV2(assayReleaseSample)
+    expect(isShapeOnlyContract(shape)).toBe(true)
+    // a fully-populated corpus is not a shape fixture
+    expect(isShapeOnlyContract({ ...liveCorpus, scenarios: new Array(113).fill(liveCorpus.scenarios[0]) })).toBe(
+      false,
+    )
+  })
+
+  it('treats the live 344/162ff corpus alone as a unique identity', () => {
+    expect(() => assertCorpusIdentityUniqueness([liveCorpus])).not.toThrow()
+  })
+
+  it('does NOT collide when the shape fixture sits alongside the live corpus', () => {
+    const shape = validateAssayReleaseContractV2(assayReleaseSample)
+    // Same 1.8.0-rc.4 tag, divergent (count, hash) — but the shape fixture is
+    // excluded, so no collision.
+    expect(() => assertCorpusIdentityUniqueness([shape, liveCorpus])).not.toThrow()
+  })
+
+  it('throws when two REAL corpora share a tag with divergent identities', () => {
+    // Both fully populated (scenarios.length >= publicExported) so neither is
+    // skipped as a shape fixture.
+    const fullScenarios = new Array(113).fill(liveCorpus.scenarios[0])
+    const realLive: AssayReleaseContractV2 = { ...liveCorpus, scenarios: fullScenarios }
+    const rival: AssayReleaseContractV2 = {
+      ...realLive,
+      scenarioSetHash:
+        '4fc9dff9cbe49af41058afc241ec77f3d4f3085a61aa41e0fe0f46ae9c7cbcd1',
+      scenarioSetHashMetadata: { ...realLive.scenarioSetHashMetadata, scenarioCount: 296 },
+      scenarioCounts: { totalInManifest: 296, publicExported: 113, privateExcluded: 183 },
+    }
+    expect(() => assertCorpusIdentityUniqueness([realLive, rival])).toThrow(
+      CorpusIdentityCollisionError,
+    )
   })
 })
 
