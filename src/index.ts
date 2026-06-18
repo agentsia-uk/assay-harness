@@ -6,6 +6,22 @@ export {
   validateHumanAnnotations,
   annotationsToPreferencePairs,
 } from './rubric.js'
+export {
+  containsUnnegatedMatch,
+  literalPhrase,
+  tokenPresent,
+  NEGATION_WINDOW_CHARS,
+} from './matchers.js'
+export type { StringMatcherMode } from './matchers.js'
+export {
+  scoreMechanism,
+  coerceCriteria,
+  ANTI_BINGO_CAP,
+  MECHANISM_PASS_THRESHOLD,
+  FRONTIER_QUORUM_REQUIRED,
+  FRONTIER_QUORUM_TOTAL,
+} from './mechanism.js'
+export type { MechanismCriteria, MechanismGate, MechanismScore } from './mechanism.js'
 export { aggregate, comparePairedScores } from './aggregator.js'
 export { analyseScenarioItems, compareScenarioSets } from './diagnostics.js'
 export { exportInspectRunRecord, exportLmEvaluationSummary } from './interoperability.js'
