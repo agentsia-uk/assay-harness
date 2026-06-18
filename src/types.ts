@@ -170,6 +170,18 @@ export interface RunRecord {
     name: string
     version: string
   }
+  /**
+   * Content hash of the exact scenario set scored in this run. Binds the
+   * RunRecord to a UNIQUE corpus, so two consumers scoring different corpora
+   * cannot both emit "the v1.8.0-rc.4 score". When the run is bound to a
+   * declared contract hash and the corpus hash does not match, the harness
+   * refuses to score or publish (see `assertScenarioSetHashMatches`).
+   *
+   * Computed by `computeScenarioSetHash(dataset)` over the sorted scenario ids
+   * and each scenario's runner-visible prompt + rubric. Optional only for
+   * backwards compatibility with pre-binding RunRecords; new runs always set it.
+   */
+  scenarioSetHash?: string
   runners: string[]
   createdAt: string
   responses: ModelResponse[]

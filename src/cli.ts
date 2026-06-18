@@ -8,7 +8,17 @@ import { loadDataset } from './loader.js'
 import { resolveRunner } from './runners/index.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
-import { writeRunRecord, readRunRecord, newRunId } from './serialiser.js'
+import { analyseScenarioItems } from './diagnostics.js'
+import {
+  assertScenarioSetHashMatches,
+  assertScenarioStratificationPublishable,
+} from './validate.js'
+import {
+  computeScenarioSetHash,
+  writeRunRecord,
+  readRunRecord,
+  newRunId,
+} from './serialiser.js'
 import { redactCommandLine } from './redact.js'
 import { pooled } from './concurrency.js'
 import { withJudgeCache } from './judge-cache.js'
@@ -49,8 +59,28 @@ program
   .option('--concurrency <n>', 'max parallel scenarios per runner (default 3)', parseIntSafe, 3)
   .option('--cache-judges', 'cache LLM judge calls to .cache/judge/ (TTL 24 h)')
   .option('--cache-ttl <ms>', 'judge cache TTL in milliseconds', parseIntSafe)
+  .option(
+    '--contract-hash <hash>',
+    'declared scenario-set hash to bind this run to; the harness refuses to ' +
+      'score a corpus whose content hash does not match',
+  )
+  .option('--ci-iterations <n>', 'bootstrap iterations for confidence intervals (default 1000)', parseIntSafe, 1000)
+  .option('--ci-level <p>', 'confidence level for the interval, e.g. 0.95 (default)', parseFloat, 0.95)
+  .option('--ci-seed <n>', 'seed for the bootstrap RNG so intervals are reproducible (default 1)', parseIntSafe, 1)
+  .option('--no-ci', 'skip bootstrap confidence intervals (NOT leaderboard-eligible)')
+  .option(
+    '--leaderboard-eligible',
+    'enforce the publication integrity gates (confidence intervals present + ' +
+      'outcome-type stratification balanced) and fail closed if unmet',
+  )
   .action(async (opts: RunOptions) => {
     const dataset = await loadDataset(opts.dataset)
+
+    // Tier-1 #2: bind the run to a unique corpus. When a contract hash is
+    // declared, refuse to score a corpus whose content hash does not match.
+    const scenarioSetHash = opts.contractHash
+      ? assertScenarioSetHashMatches(dataset, opts.contractHash)
+      : computeScenarioSetHash(dataset)
     const runnerIds = Array.isArray(opts.runner) ? opts.runner : [opts.runner]
     const runners = runnerIds.map((id) => resolveRunner(id))
     const log = createStderrLogger()
@@ -116,7 +146,46 @@ program
       }
     }
 
-    const aggregates = aggregate(scores)
+    // Tier-1 #3: wire bootstrap confidence intervals into the run path. A
+    // composite without an interval is not leaderboard-eligible.
+    const withCi = opts.ci !== false
+    const aggregates = aggregate(
+      scores,
+      withCi
+        ? {
+            confidence: {
+              method: 'bootstrap',
+              iterations: opts.ciIterations,
+              confidenceLevel: opts.ciLevel,
+              seed: opts.ciSeed,
+            },
+          }
+        : {},
+    )
+
+    // Tier-1 #3 + #4: enforce the publication integrity gates before a run can
+    // claim leaderboard eligibility. Fail closed if intervals are missing or
+    // outcome-type coverage is absent/imbalanced.
+    if (opts.leaderboardEligible) {
+      if (!withCi) {
+        throw new Error(
+          'leaderboard-eligible runs require confidence intervals; remove ' +
+            '--no-ci to publish a composite as leaderboard-eligible',
+        )
+      }
+      const diagnostics = analyseScenarioItems(dataset, {
+        id: runId,
+        dataset: { name: dataset.name, version: dataset.version },
+        scenarioSetHash,
+        runners: runners.map((r) => r.id),
+        createdAt: at(),
+        responses,
+        scores,
+        aggregates,
+        meta: { harnessVersion: pkg.version },
+      })
+      assertScenarioStratificationPublishable(diagnostics.outcomeCoverage)
+    }
 
     log.emit({
       event: 'run:end',
@@ -128,6 +197,7 @@ program
     const record: RunRecord = {
       id: runId,
       dataset: { name: dataset.name, version: dataset.version },
+      scenarioSetHash,
       runners: runners.map((r) => r.id),
       createdAt: new Date().toISOString(),
       responses,
@@ -211,4 +281,11 @@ interface RunOptions {
   concurrency: number
   cacheJudges?: boolean
   cacheTtl?: number
+  contractHash?: string
+  ciIterations: number
+  ciLevel: number
+  ciSeed: number
+  /** commander sets this to `false` when `--no-ci` is passed. */
+  ci?: boolean
+  leaderboardEligible?: boolean
 }

@@ -510,6 +510,84 @@ export function validateAssayReleaseContractV2(
   }
 }
 
+// --- corpus-identity uniqueness (Tier-1 #2) -----------------------------------
+
+/**
+ * Raised when a single corpus version tag resolves to more than one
+ * (scenarioCount, scenarioSetHash) identity. A version tag MUST pin a unique
+ * corpus, otherwise two consumers can both publish "the v1.8.0-rc.4 score" off
+ * different scenario sets.
+ */
+export class CorpusIdentityCollisionError extends CrossRepoContractError {
+  constructor(version: string, identities: CorpusIdentity[]) {
+    super(
+      `corpus version "${version}" resolves to ${identities.length} distinct ` +
+        `(scenarioCount, scenarioSetHash) identities: ` +
+        identities
+          .map((i) => `${i.scenarioCount ?? '?'}/${i.scenarioSetHash.slice(0, 12)}`)
+          .join(' vs ') +
+        `. A version tag must pin a UNIQUE corpus. Either bump the version of ` +
+        `the divergent corpus, or mark a non-corpus document as a shape-only ` +
+        `fixture (see isShapeOnlyContract).`,
+    )
+    this.name = 'CorpusIdentityCollisionError'
+  }
+}
+
+export interface CorpusIdentity {
+  version: string
+  scenarioSetHash: string
+  scenarioCount?: number
+}
+
+/**
+ * A contract is a SHAPE-ONLY fixture (a schema example, not a real corpus
+ * identity) when its inline `scenarios` array is smaller than the public
+ * scenario count it declares. The byte-aligned v2 example fixture carries the
+ * 296/`4fc9` corpus identity in its counts/hash for producer-consumer schema
+ * alignment, but ships only a couple of illustrative scenarios inline — it is
+ * NOT a competing corpus and must be excluded from the uniqueness check.
+ *
+ * The discriminator is structural (count vs inline length), so a freshly cut,
+ * fully-populated contract is never mistaken for a shape fixture.
+ */
+export function isShapeOnlyContract(contract: AssayReleaseContractV2): boolean {
+  return contract.scenarios.length < contract.scenarioCounts.publicExported
+}
+
+/**
+ * Assert that a set of real (non-shape) corpus contracts maps each version tag
+ * to a UNIQUE (scenarioCount, scenarioSetHash). Throws
+ * {@link CorpusIdentityCollisionError} on the first colliding version.
+ *
+ * Shape-only fixtures are skipped (see {@link isShapeOnlyContract}).
+ */
+export function assertCorpusIdentityUniqueness(
+  contracts: readonly AssayReleaseContractV2[],
+): void {
+  const byVersion = new Map<string, CorpusIdentity[]>()
+  for (const contract of contracts) {
+    if (isShapeOnlyContract(contract)) continue
+    const identity: CorpusIdentity = {
+      version: contract.corpusVersion,
+      scenarioSetHash: contract.scenarioSetHash,
+      scenarioCount: contract.scenarioSetHashMetadata.scenarioCount,
+    }
+    const bucket = byVersion.get(identity.version) ?? []
+    bucket.push(identity)
+    byVersion.set(identity.version, bucket)
+  }
+
+  for (const [version, identities] of byVersion) {
+    const distinct = new Map(
+      identities.map((i) => [`${i.scenarioCount}:${i.scenarioSetHash}`, i]),
+    )
+    if (distinct.size > 1) {
+      throw new CorpusIdentityCollisionError(version, [...distinct.values()])
+    }
+  }
+}
+
 /**
  * Refuse a contract whose claim gate is blocked. Call this before using a
  * contract for ANY leaderboard-claim run. A blocked contract MAY still be
