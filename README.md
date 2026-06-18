@@ -4,7 +4,9 @@ Open evaluation harness for the [Agentsia Labs](https://agentsia.uk/labs) benchm
 
 `assay-harness` is the public runner and scoring package used around Agentsia Labs benchmark releases. It loads harness-native scenario datasets, sends prompts to provider or local model runners, evaluates outputs against published rubrics, and writes versioned `RunRecord` JSON for audit and aggregation.
 
-The first live benchmark is **Assay-Adtech v1**. Its governed release currently contains 344 scenarios in Modelsmith, with 113 public scenarios exported for inspection and reproducibility work. The remaining 231 scenarios are private holdout items used for leaderboard integrity.
+The scoring mechanism is public and reproducible. The executable scorer enforces the published scoring rules rather than leaving them as prose: it caps keyword-bingo so a response cannot win on vocabulary alone, and it matches negation-aware so "this is **not** invalid traffic" is not credited as if it had flagged invalid traffic. The mechanism is a scoring *rule*, not an answer key. See [Reproducibility](#reproducibility) for the golden self-test that proves a headline number regenerates, and [`docs/public-held-out-boundary.md`](docs/public-held-out-boundary.md) for exactly what is released versus held out.
+
+The first live benchmark is **Assay-Adtech v1**. The governed corpus size, the public/private split, and the scenario-set hash are reported by the release contract, which is the single source of truth for those numbers (see [Assay-Adtech V1 Artifacts](#assay-adtech-v1-artifacts)). The private holdout scenarios are excluded from the public export and exist for leaderboard integrity; they are disclosed as excluded, never silently folded into a public composite.
 
 ![Assay-Adtech frontier performance chart](docs/assets/assay-adtech-frontier-performance.svg)
 
@@ -113,25 +115,20 @@ Assay-Adtech v1 release artifacts are governed by Modelsmith and published here 
 | Artifact | Meaning |
 |---|---|
 | `assay-adtech-v1.8.0-rc.4-release-contract.json` | Release contract for the governed corpus. Includes corpus counts, scenario-set hash, claim gate, and public redaction contract. |
-| `assay-adtech-v1.8.0-rc.4-public-harness-export.json` | Public scenario export. Contains the 113 public scenarios and excludes 231 private holdout scenarios. |
+| `assay-adtech-v1.8.0-rc.4-public-harness-export.json` | Public scenario export. Contains the public scenarios and excludes the private holdout scenarios. |
 | `assay-adtech-v1.8.0-rc.4-assets.sha256` | Checksums for the release assets. |
 
-Current release contract facts:
+The governed corpus size, the public/private split, the public outcome distribution, the scenario-set hash, and the manifest version are reported **by the release contract**, which is the single source of truth for those numbers. Read them from the contract rather than from this README, so a copy here can never drift from the artifact:
 
-| Field | Value |
-|---|---|
-| Manifest version | `1.8.0-rc.4` |
-| Scenario-set hash | `162ff7fcd8ce4266af8848938b3fc6415000843e0901651456d3fa4191fc65b6` |
-| Governed scenarios | 344 |
-| Public scenarios | 113 |
-| Private holdout scenarios excluded | 231 |
-| Public outcome distribution | TP 36, TN 28, FP-guard 21, FN-guard 28 |
+```bash
+node -e "const j=require('./assay-adtech-v1.8.0-rc.4-release-contract.json'); console.log({manifest:j.provenance.manifestVersion, hash:j.scenarioSetHash, counts:j.scenarioCounts, split:j.provenance.publicPrivateSplit, claimGate:j.claimGate.status})"
+```
 
-The benchmark claims page and release contract should be treated as the public source of truth for Assay-Adtech leaderboard claims. The sample files under `examples/scenarios` are only smoke-test fixtures for the harness package.
+A `RunRecord` is bound to the `scenarioSetHash` it was produced against, so a number is always tied to the exact corpus it was measured on and cannot be quoted against a different one. The benchmark claims page and release contract are the public source of truth for Assay-Adtech leaderboard claims. The sample files under `examples/scenarios` are only smoke-test fixtures for the harness package.
 
 ## Frontier Baseline Snapshot
 
-The SVG above is derived from the current Modelsmith production-baseline proof package for scenario-set hash `162ff7fcd8ce`. It summarizes no-tools frontier runs over the 344-scenario governed corpus.
+The SVG above is derived from the current Modelsmith production-baseline proof package for the governed corpus identified by the release contract's `scenarioSetHash`. It summarizes no-tools frontier runs over that corpus.
 
 | Benchmark cluster | Claude Opus 4.7 | GPT 5.5 | Gemini 3.1 Pro Preview |
 |---|---:|---:|---:|
@@ -174,6 +171,14 @@ Programmatic rubrics are implemented in `src/rubric.ts` and can be extended with
 - `non-empty`
 
 The public type surface also defines `llm-judge` and `human` rubric variants. Programmatic rubrics remain the default for benchmark-grade claims. LLM judges require an explicit executor, calibration evidence, prompt provenance, and passing bias checks before the harness will score them. Their scores default to `analysis-only` so they cannot silently become leaderboard claims. Human annotations are represented through a validation and adjudication contract that can export preference pairs for downstream Modelsmith training workflows.
+
+### Mechanism Scorer And Anti-Bingo
+
+The built-in `contains` checker is a plain substring match. On its own a substring match credits keyword-bingo: a true-positive item keyed on `["invalid traffic", "flag"]` would score a full mark for "this is **not** invalid traffic, do **not** flag", which is the opposite of the right answer. So `contains` is for smoke-test fixtures, not benchmark-grade scoring. Benchmark-grade scoring uses the executable mechanism scorer, which caps the credit a response can earn from vocabulary alone and matches negation-aware (a phrase inside a locally-negated clause does not count). The persistence grader described below reuses that same negation-aware matcher. The scorer is bound to a scorer version so a score is reproducible against a known scoring rule. Exposing this rule is deliberate; it is a scoring mechanism, not an answer key, and the per-held-out-scenario phrase expansions stay private (see [`docs/public-held-out-boundary.md`](docs/public-held-out-boundary.md)).
+
+### Multi-Turn And Persistence
+
+Some scenarios are multi-turn: they submit a sequence of adversarial user turns and check whether the model holds its position across them rather than caving to pressure. The release contract advertises these via `multiTurn` / `conversationHistory` and a `persistence-grader-v1` harness dependency. The harness ships that grader (`runMultiTurn` plus `gradePersistence` / `scorePersistence` in `src/persistence-grader.ts`): it walks the conversation, accumulating history per turn, then grades persistence (did the model carry a fact, disposition, constraint, or mechanism forward; did it correctly update on legitimate new evidence). The matcher is the same negation-aware one the mechanism scorer uses, so "I will **not** approve the refund" is not scored as a flip. A scenario marked multi-turn is refused on the single-shot path rather than silently flattened to its first turn.
 
 ## Statistical Claim Gates
 
@@ -225,6 +230,10 @@ Every published Assay release should identify:
 - raw or redacted run records where publication policy allows
 - aggregate scores and confidence intervals
 - claim-gate status
+
+What makes the headline reproducible rather than merely asserted is the **golden reproducibility self-test**: a pinned corpus plus pinned model outputs are scored in CI, and the regenerated composite must equal the published value. Because the scoring mechanism is public (the anti-bingo cap and negation-aware matcher, the persistence grader), anyone can run the same pinned inputs through the same scorer and land on the same number. A score that cannot be regenerated from pinned inputs and the public scorer is not a reproducible score, and should not be quoted as one.
+
+Released versus held-out is drawn explicitly in [`docs/public-held-out-boundary.md`](docs/public-held-out-boundary.md). Released scenarios are reproducibly scorable from this repo. Held-out scenarios are disclosed as held out and never silently mixed into a public composite. Judge-mediated components are disclosed as judge-mediated and default to `analysis-only`.
 
 If a published public artifact cannot be verified against its checksum, file an issue.
 

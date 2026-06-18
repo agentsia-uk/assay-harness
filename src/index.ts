@@ -55,3 +55,31 @@ export {
   createHuggingFaceRunner,
   createVllmRunner,
 } from './runners/index.js'
+export {
+  runMultiTurn,
+  assertSingleTurn,
+  isMultiTurnScenario,
+  MultiTurnError,
+} from './runners/multi-turn.js'
+export type {
+  MultiTurnScenario,
+  MultiTurnResult,
+  ConversationTurn,
+} from './runners/multi-turn.js'
+export {
+  gradePersistence,
+  scorePersistence,
+  PERSISTENCE_GRADER_VERSION,
+} from './persistence-grader.js'
+export type {
+  TurnObservation,
+  PersistenceCriterion,
+  PersistenceScore,
+  PersistenceVerdict,
+  PersistenceReason,
+  FactPersistenceCriterion,
+  DispositionPersistenceCriterion,
+  ConstraintPersistenceCriterion,
+  MechanismPersistenceCriterion,
+  EvidenceUpdateCriterion,
+} from './persistence-grader.js'

@@ -57,3 +57,15 @@ export {
   createHuggingFaceRunner,
   createVllmRunner,
 }
+
+export {
+  runMultiTurn,
+  assertSingleTurn,
+  isMultiTurnScenario,
+  MultiTurnError,
+} from './multi-turn.js'
+export type {
+  MultiTurnScenario,
+  MultiTurnResult,
+  ConversationTurn,
+} from './multi-turn.js'
