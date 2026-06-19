@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { execFile } from 'node:child_process'
-import { readFile, mkdtemp } from 'node:fs/promises'
+import { readFile, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -68,5 +68,52 @@ describe('CLI integrity wiring', () => {
     ])
     expect(code).not.toBe(0)
     expect(stderr).toContain('scenario-set hash mismatch')
+  }, 30_000)
+
+  it('refuses multiTurn scenarios on the single-shot run path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'assay-cli-multiturn-'))
+    const datasetPath = join(dir, 'dataset.json')
+    const out = join(dir, 'run.json')
+    await writeFile(
+      datasetPath,
+      JSON.stringify(
+        {
+          name: 'multi-turn-guard',
+          version: '0.0.0',
+          scenarios: [
+            {
+              id: 'multi-turn-scenario',
+              axes: ['persistence'],
+              input: {
+                messages: [{ role: 'user', content: 'remember this constraint' }],
+              },
+              rubric: {
+                kind: 'programmatic',
+                checker: 'non-empty',
+              },
+              meta: {
+                multiTurn: true,
+              },
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    )
+
+    const { code, stderr } = await runCli([
+      'run',
+      '-d',
+      datasetPath,
+      '-r',
+      'stub:echo',
+      '-o',
+      out,
+    ])
+
+    expect(code).not.toBe(0)
+    expect(stderr).toContain("scenario 'multi-turn-scenario' is marked multiTurn")
+    await expect(readFile(out, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   }, 30_000)
 })
