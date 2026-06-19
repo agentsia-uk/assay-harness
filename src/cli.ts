@@ -27,7 +27,7 @@ import { withJudgeCache } from './judge-cache.js'
 import { compareRuns, formatCompareTable } from './compare.js'
 import { buildMarkdownReport, createGist } from './publish.js'
 import { createStderrLogger } from './progress.js'
-import type { LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
+import type { Dataset, LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgPath = resolve(here, '..', 'package.json')
@@ -320,8 +320,24 @@ program
   .description('publish a RunRecord as a markdown summary')
   .argument('<run>', 'path to RunRecord JSON')
   .option('--to <target>', 'destination: stdout or github-gist (default: stdout)', 'stdout')
-  .action(async (runPath: string, opts: { to: string }) => {
+  .option('-d, --dataset <path>', 'dataset directory or bundle file to verify corpus identity')
+  .option(
+    '--contract-hash <hash>',
+    'declared scenario-set hash to verify before publishing',
+  )
+  .option(
+    '--leaderboard-eligible',
+    'enforce publish integrity gates before emitting leaderboard-eligible output',
+  )
+  .action(async (runPath: string, opts: PublishOptions) => {
     const record = await readRunRecord(runPath)
+    const dataset = opts.dataset ? await loadDataset(opts.dataset) : undefined
+
+    assertPublishContract(record, { dataset, contractHash: opts.contractHash })
+    if (opts.leaderboardEligible) {
+      assertLeaderboardEligiblePublish(record, dataset)
+    }
+
     const markdown = buildMarkdownReport(record)
 
     if (opts.to === 'github-gist') {
@@ -380,6 +396,13 @@ interface ContractOptions {
   json?: boolean
 }
 
+interface PublishOptions {
+  to: string
+  dataset?: string
+  contractHash?: string
+  leaderboardEligible?: boolean
+}
+
 function isRunRecordLike(value: unknown): value is RunRecord {
   return (
     typeof value === 'object' &&
@@ -388,4 +411,104 @@ function isRunRecordLike(value: unknown): value is RunRecord {
     typeof (value as RunRecord).dataset === 'object' &&
     (value as RunRecord).dataset !== null
   )
+}
+
+function assertPublishContract(
+  record: RunRecord,
+  opts: { dataset?: Dataset, contractHash?: string },
+): void {
+  const errors: string[] = []
+
+  if (opts.dataset) {
+    const scenarioSetHash = opts.contractHash
+      ? assertScenarioSetHashMatches(opts.dataset, opts.contractHash)
+      : computeScenarioSetHash(opts.dataset)
+
+    if (record.dataset.name !== opts.dataset.name) {
+      errors.push(
+        `RunRecord.dataset.name "${record.dataset.name}" does not match dataset name "${opts.dataset.name}"`,
+      )
+    }
+    if (record.dataset.version !== opts.dataset.version) {
+      errors.push(
+        `RunRecord.dataset.version "${record.dataset.version}" does not match dataset version "${opts.dataset.version}"`,
+      )
+    }
+    errors.push(...scenarioSetHashErrors(record, scenarioSetHash, 'dataset hash'))
+  } else if (opts.contractHash) {
+    errors.push(...scenarioSetHashErrors(record, opts.contractHash, 'declared contract hash'))
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`RunRecord publish validation failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`)
+  }
+}
+
+function scenarioSetHashErrors(record: RunRecord, expected: string, label: string): string[] {
+  if (!record.scenarioSetHash) {
+    return [
+      `RunRecord.scenarioSetHash is required when validating publish output against a ${label}; ` +
+        `expected "${expected}"`,
+    ]
+  }
+  if (record.scenarioSetHash !== expected) {
+    return [
+      `RunRecord.scenarioSetHash "${record.scenarioSetHash}" does not match ${label} "${expected}"`,
+    ]
+  }
+  return []
+}
+
+function assertLeaderboardEligiblePublish(
+  record: RunRecord,
+  dataset: Dataset | undefined,
+): void {
+  const errors = aggregateConfidenceErrors(record)
+  if (errors.length > 0) {
+    throw new Error(
+      `leaderboard-eligible publish gate failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`,
+    )
+  }
+
+  if (!dataset) {
+    throw new Error(
+      'leaderboard-eligible publish requires --dataset so outcome-type stratification can be verified',
+    )
+  }
+
+  const diagnostics = analyseScenarioItems(dataset, record)
+  assertScenarioStratificationPublishable(diagnostics.outcomeCoverage)
+}
+
+function aggregateConfidenceErrors(record: RunRecord): string[] {
+  const errors: string[] = []
+
+  if (record.aggregates.length === 0) {
+    errors.push('RunRecord.aggregates must contain at least one aggregate with confidence intervals')
+    return errors
+  }
+
+  for (const aggregateRecord of record.aggregates) {
+    if (!aggregateRecord.statisticalClaims) {
+      errors.push(
+        `aggregate for runner "${aggregateRecord.runnerId}" is missing statisticalClaims; ` +
+          'leaderboard-eligible publish requires bootstrap confidence intervals',
+      )
+    }
+
+    const axes = Object.entries(aggregateRecord.axes)
+    if (axes.length === 0) {
+      errors.push(`aggregate for runner "${aggregateRecord.runnerId}" has no axes`)
+    }
+
+    for (const [axis, axisAggregate] of axes) {
+      if (!axisAggregate.confidenceInterval) {
+        errors.push(
+          `aggregate for runner "${aggregateRecord.runnerId}" axis "${axis}" is missing a confidence interval`,
+        )
+      }
+    }
+  }
+
+  return errors
 }
