@@ -13,6 +13,7 @@ import { analyseScenarioItems } from './diagnostics.js'
 import {
   assertScenarioSetHashMatches,
   assertScenarioStratificationPublishable,
+  validateRunRecord,
 } from './validate.js'
 import {
   computeScenarioSetHash,
@@ -238,6 +239,83 @@ program
   })
 
 program
+  .command('validate')
+  .description('validate a RunRecord JSON file and optionally bind it to a dataset contract')
+  .argument('<run>', 'path to RunRecord JSON')
+  .option('-d, --dataset <path>', 'dataset directory or bundle file to verify corpus identity')
+  .option('--json', 'output validation result as JSON')
+  .action(async (runPath: string, opts: ValidateOptions) => {
+    const raw = JSON.parse(await readFile(runPath, 'utf8')) as unknown
+    const result = validateRunRecord(raw)
+    const errors = [...result.errors]
+    let scenarioSetHash: string | null = null
+
+    if (opts.dataset && result.valid && isRunRecordLike(raw)) {
+      const dataset = await loadDataset(opts.dataset)
+      scenarioSetHash = computeScenarioSetHash(dataset)
+      if (raw.dataset.name !== dataset.name) {
+        errors.push(
+          `RunRecord.dataset.name "${raw.dataset.name}" does not match dataset name "${dataset.name}"`,
+        )
+      }
+      if (raw.dataset.version !== dataset.version) {
+        errors.push(
+          `RunRecord.dataset.version "${raw.dataset.version}" does not match dataset version "${dataset.version}"`,
+        )
+      }
+      if (!raw.scenarioSetHash) {
+        errors.push(
+          `RunRecord.scenarioSetHash is required when validating against a dataset contract; ` +
+            `expected "${scenarioSetHash}"`,
+        )
+      } else if (raw.scenarioSetHash !== scenarioSetHash) {
+        errors.push(
+          `RunRecord.scenarioSetHash "${raw.scenarioSetHash}" does not match dataset hash "${scenarioSetHash}"`,
+        )
+      }
+    }
+
+    const ok = errors.length === 0
+    if (opts.json) {
+      console.log(JSON.stringify({ valid: ok, errors, scenarioSetHash }, null, 2))
+    } else if (ok) {
+      console.log('RunRecord valid')
+      if (scenarioSetHash) console.log(`scenarioSetHash=${scenarioSetHash}`)
+    } else {
+      process.stderr.write(`RunRecord validation failed:\n${errors.map((e) => `  - ${e}`).join('\n')}\n`)
+    }
+
+    if (!ok) process.exitCode = 1
+  })
+
+program
+  .command('contract')
+  .description('print or enforce the dataset identity contract used by --contract-hash')
+  .argument('<dataset>', 'path to dataset directory or bundle file')
+  .option('--expect-hash <hash>', 'fail if the dataset scenario-set hash differs from this value')
+  .option('--json', 'output contract as JSON')
+  .action(async (datasetPath: string, opts: ContractOptions) => {
+    const dataset = await loadDataset(datasetPath)
+    const scenarioSetHash = opts.expectHash
+      ? assertScenarioSetHashMatches(dataset, opts.expectHash)
+      : computeScenarioSetHash(dataset)
+    const contract = {
+      name: dataset.name,
+      version: dataset.version,
+      scenarioCount: dataset.scenarios.length,
+      scenarioSetHash,
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(contract, null, 2))
+    } else {
+      console.log(`${contract.name} v${contract.version}`)
+      console.log(`scenarioCount=${contract.scenarioCount}`)
+      console.log(`scenarioSetHash=${contract.scenarioSetHash}`)
+    }
+  })
+
+program
   .command('publish')
   .description('publish a RunRecord as a markdown summary')
   .argument('<run>', 'path to RunRecord JSON')
@@ -290,4 +368,24 @@ interface RunOptions {
   /** commander sets this to `false` when `--no-ci` is passed. */
   ci?: boolean
   leaderboardEligible?: boolean
+}
+
+interface ValidateOptions {
+  dataset?: string
+  json?: boolean
+}
+
+interface ContractOptions {
+  expectHash?: string
+  json?: boolean
+}
+
+function isRunRecordLike(value: unknown): value is RunRecord {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as RunRecord).dataset === 'object' &&
+    (value as RunRecord).dataset !== null
+  )
 }
