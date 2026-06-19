@@ -9,7 +9,7 @@ import type {
   Scenario,
   Score,
 } from './types.js'
-import { coerceCriteria, scoreMechanism } from './mechanism.js'
+import { ANTI_BINGO_CAP, coerceCriteria, scoreMechanism } from './mechanism.js'
 import { containsUnnegatedMatch } from './matchers.js'
 
 type Checker = (
@@ -56,11 +56,16 @@ const checkers: Record<string, Checker> = {
       : []
     const haystack = response.output.toLowerCase()
     const missing = expected.filter((s) => !haystack.includes(s.toLowerCase()))
+    const rawValue = expected.length === 0 ? 1 : 1 - missing.length / expected.length
+    const smokeTestOnly = params['smokeTestOnly'] === true
+    const value = smokeTestOnly ? rawValue : Math.min(rawValue, ANTI_BINGO_CAP)
     return {
-      value: expected.length === 0 ? 1 : 1 - missing.length / expected.length,
+      value,
       rationale:
         (missing.length === 0 ? 'all terms present' : `missing: ${missing.join(', ')}`) +
-        ' [smoke-test-only: not negation-aware]',
+        (smokeTestOnly
+          ? ' [smoke-test-only: not negation-aware]'
+          : ` [contains capped at ${ANTI_BINGO_CAP}; use keyword/mechanism for benchmark scoring]`),
     }
   },
 
