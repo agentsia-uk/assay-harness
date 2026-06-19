@@ -47,7 +47,8 @@ describe('assay-release-contract v2 — mirrored Modelsmith fixtures', () => {
     const contract = validateAssayReleaseContractV2(assayReleaseSample)
     expect(contract.schemaVersion).toBe('modelsmith.assay-release-contract.v2')
     expect(contract.scenarios.length).toBeGreaterThan(0)
-    expect(contract.scenarioCounts.totalInManifest).toBe(296)
+    expect(contract.scenarioCounts.totalInManifest).toBe(344)
+    expect(contract.scenarioSetHashMetadata.shortHash).toBe('0c3bafc0f150')
     for (const scenario of contract.scenarios) {
       expect(scenario.id).toBeTruthy()
       expect(scenario.passCriteria).toBeTruthy()
@@ -103,7 +104,8 @@ describe('claimGate refusal — blocked status', () => {
     expect(caught).toBeInstanceOf(ClaimGateBlockedError)
     expect((caught as Error).message).toContain('agentsia-uk/Modelsmith')
     expect((caught as Error).message).toContain('agentsia-uk/assay-harness')
-    expect((caught as Error).message).toContain('ADR-098 Phase 2')
+    expect((caught as Error).message).toContain('0c3bafc0f150')
+    expect((caught as Error).message).toContain('persistence trace must be re-run')
   })
 
   it('still permits ingesting a blocked contract for an internal smoke run', () => {
@@ -130,7 +132,7 @@ describe('claimGate refusal — blocked status', () => {
 })
 
 describe('corpus-identity uniqueness — a version tag pins a unique (count, hash)', () => {
-  // The byte-aligned v2 sample fixture declares scenarioCount 296 / hash 4fc9…
+  // The byte-aligned v2 sample fixture declares scenarioCount 344 / hash 0c3b…
   // but ships only 2 illustrative scenarios inline. That makes it a SHAPE-only
   // fixture, NOT a competing corpus identity. The README's current live corpus
   // is 344 / hash 162ff…, also tagged 1.8.0-rc.4 — these would collide if the
