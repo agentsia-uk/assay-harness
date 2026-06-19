@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { loadDataset } from './loader.js'
 import { resolveRunner } from './runners/index.js'
+import { assertSingleTurn } from './runners/multi-turn.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
 import { analyseScenarioItems } from './diagnostics.js'
@@ -117,6 +118,7 @@ program
         log.emit({ event: 'scenario:start', runId, runnerId: runner.id, scenarioId: scenario.id, at: at() })
         let response: ModelResponse
         try {
+          assertSingleTurn(scenario)
           response = await runner.run(scenario, runnerOpts)
         } catch (err) {
           const error = err instanceof Error ? err.message : String(err)
