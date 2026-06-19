@@ -75,6 +75,43 @@ describe('scenario diagnostics and interoperability exports', () => {
     })
   })
 
+  it('flags near-copy leakage with token n-gram overlap, not only exact prompt matches', () => {
+    const fuzzyDataset: Dataset = {
+      ...dataset,
+      scenarios: [
+        {
+          id: 'fuzzy',
+          axes: ['quality'],
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content:
+                  'Classify this auction log with publisher id pub-77, bid floor 1.25, and ivt spike evidence.',
+              },
+            ],
+          },
+          rubric: { kind: 'programmatic', checker: 'non-empty' },
+        },
+      ],
+    }
+
+    const report = analyseScenarioItems(fuzzyDataset, { ...record, scores: [] }, {
+      leakageNgramSize: 4,
+      leakageNgramThreshold: 0.5,
+      trainingPrompts: [
+        'Classify this auction log with publisher id pub-77, bid floor 1.25, and anomalous ivt spike evidence.',
+      ],
+    })
+
+    expect(report.items.fuzzy.flags).toEqual(['possible-leakage'])
+    expect(report.flags).toContainEqual(expect.objectContaining({
+      scenarioId: 'fuzzy',
+      kind: 'possible-leakage',
+      detail: expect.stringContaining('4-gram overlap with a training prompt'),
+    }))
+  })
+
   it('compares scenario-set versions and flags changed or overlapping items', () => {
     const next: Dataset = {
       ...dataset,

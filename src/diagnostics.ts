@@ -2,6 +2,8 @@ import type { Dataset, RunRecord, Scenario } from './types.js'
 
 export interface ScenarioDiagnosticsOptions {
   trainingPrompts?: string[]
+  leakageNgramSize?: number
+  leakageNgramThreshold?: number
 }
 
 export interface ScenarioDiagnosticsReport {
@@ -38,7 +40,10 @@ export function analyseScenarioItems(
   const items: ScenarioDiagnosticsReport['items'] = {}
   const flags: ScenarioDiagnosticsReport['flags'] = []
   const outcomeCoverage: Record<string, number> = {}
-  const trainingPrompts = new Set((options.trainingPrompts ?? []).map(normaliseText))
+  const trainingPromptTexts = (options.trainingPrompts ?? []).map(normaliseText)
+  const trainingPrompts = new Set(trainingPromptTexts)
+  const leakageNgramSize = Math.max(1, Math.floor(options.leakageNgramSize ?? 5))
+  const leakageNgramThreshold = Math.min(1, Math.max(0, options.leakageNgramThreshold ?? 0.65))
 
   for (const scenario of dataset.scenarios) {
     const scenarioScores = record.scores.filter((score) => score.scenarioId === scenario.id)
@@ -67,13 +72,27 @@ export function analyseScenarioItems(
         detail: 'all scored responses failed this item',
       })
     }
-    if (trainingPrompts.has(normaliseText(promptText(scenario)))) {
+    const prompt = normaliseText(promptText(scenario))
+    if (trainingPrompts.has(prompt)) {
       itemFlags.push('possible-leakage')
       flags.push({
         scenarioId: scenario.id,
         kind: 'possible-leakage',
         detail: 'scenario prompt exactly matches a training prompt',
       })
+    } else {
+      const fuzzyMatch = findNgramLeakage(prompt, trainingPromptTexts, {
+        ngramSize: leakageNgramSize,
+        threshold: leakageNgramThreshold,
+      })
+      if (fuzzyMatch !== null) {
+        itemFlags.push('possible-leakage')
+        flags.push({
+          scenarioId: scenario.id,
+          kind: 'possible-leakage',
+          detail: `scenario prompt shares ${formatPercent(fuzzyMatch.overlap)} ${leakageNgramSize}-gram overlap with a training prompt`,
+        })
+      }
     }
 
     items[scenario.id] = {
@@ -135,4 +154,48 @@ function promptText(scenario: Scenario): string {
 
 function normaliseText(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function findNgramLeakage(
+  prompt: string,
+  trainingPrompts: string[],
+  options: { ngramSize: number; threshold: number },
+): { overlap: number } | null {
+  const promptNgrams = tokenNgrams(prompt, options.ngramSize)
+  if (promptNgrams.size === 0) return null
+
+  for (const trainingPrompt of trainingPrompts) {
+    const trainingNgrams = tokenNgrams(trainingPrompt, options.ngramSize)
+    if (trainingNgrams.size === 0) continue
+    const overlap = containment(promptNgrams, trainingNgrams)
+    if (overlap >= options.threshold) return { overlap }
+  }
+
+  return null
+}
+
+function tokenNgrams(value: string, size: number): Set<string> {
+  const tokens = value
+    .split(/\s+/)
+    .map((token) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter(Boolean)
+  if (tokens.length < size) return new Set(tokens)
+  const ngrams = new Set<string>()
+  for (let i = 0; i <= tokens.length - size; i += 1) {
+    ngrams.add(tokens.slice(i, i + size).join(' '))
+  }
+  return ngrams
+}
+
+function containment(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0) return 0
+  let shared = 0
+  for (const value of left) {
+    if (right.has(value)) shared += 1
+  }
+  return shared / left.size
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`
 }
