@@ -128,13 +128,17 @@ A `RunRecord` is bound to the `scenarioSetHash` it was produced against, so a nu
 
 ## Frontier Baseline Snapshot
 
-The SVG above is derived from the current Modelsmith production-baseline proof package for the governed corpus identified by the release contract's `scenarioSetHash`. It summarizes no-tools frontier runs over that corpus.
+The SVG above is derived from the published, version-labelled Modelsmith **v1.0** production-baseline proof package for the governed 344-scenario corpus, hash `04e0063373df`. It summarizes no-tools frontier runs over that corpus. These are the only Assay-Adtech frontier numbers cleared for leaderboard reference today.
 
-| Benchmark cluster | Claude Opus 4.7 | GPT 5.5 | Gemini 3.1 Pro Preview |
+| Benchmark cluster | Claude Opus 4.7 | GPT 5.5 | Gemini 3.5 Flash |
 |---|---:|---:|---:|
-| Assay-Adtech | 41.6 | 40.4 | 37.2 |
+| Assay-Adtech | 41.6 | 40.4 | 38.1 |
 
-Scores are composite percentages against a 100 percent ceiling. Each provider row is based on three production runs with 95 percent confidence intervals recorded in the proof package. Use the release contract before quoting any leaderboard or performance claim.
+Scores are composite percentages against a 100 percent ceiling. Each provider row is based on three production runs with 95 percent confidence intervals recorded in the proof package (Opus 4.7 36.3 to 46.8; GPT 5.5 35.2 to 45.6; Gemini 3.5 Flash 32.8 to 43.3). Use the release contract before quoting any leaderboard or performance claim.
+
+A number is always tied to the exact corpus hash it was measured on. The v1.0 baselines above stay published and version-labelled per the benchmark-versioning policy. The corpus has since rotated to **v1.1** (hash `0c3bafc0f150`) after a council grader-rebuild and factual-correction pass; the release contract's `claimGate` keeps leaderboard claims **blocked** on v1.1 until the runnable frontier models are re-run on that hash. No v1.1 number is published here.
+
+**Frontier lineup.** The frontier panel Modelsmith tracks for Assay-Adtech spans Claude (Opus 4.7, Opus 4.8, Fable 5), OpenAI (GPT 5.5, GPT 5.4), and Google Gemini (3.5 Flash, 3.1 Pro Preview). Only the three corpus-matched, quorum-satisfied v1.0 cells above carry published leaderboard scores. **Claude Fable 5** is part of the lineup but has no leaderboard-eligible score: its only run is a single grandfathered pass on the superseded pre-fact-check v1 corpus, and the model was withdrawn by US-government order, so it cannot be re-run on the published v1.0 or current v1.1 hash. Cross-quoting a Fable 5 number against a different corpus would violate the corpus-matching rule, so none is shown.
 
 ## Concepts
 
