@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "modelsmith.assay-release-contract.v2",
+  "benchmark": "assay-adtech",
+  "scenarioSetHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scenarioSetHashMetadata": {
+    "hashSchemaVersion": "v1",
+    "scenarioSetHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "shortHash": "aaaaaaaaaaaa",
+    "scenarioCount": 344
+  },
+  "claimGate": {
+    "status": "blocked",
+    "leaderboardClaimsAllowed": false,
+    "blocker": "frontier cells have not been rerun on the current governed hash",
+    "gatedDomains": []
+  }
+}

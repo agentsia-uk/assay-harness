@@ -25,6 +25,27 @@ export {
   FRONTIER_QUORUM_TOTAL,
 } from './mechanism.js'
 export type { MechanismCriteria, MechanismGate, MechanismScore } from './mechanism.js'
+export {
+  assertFrontierQuorum,
+  formatFrontierVerificationResult,
+  readFrontierContractMetadata,
+  verifyFrontierQuorum,
+  DEFAULT_FRONTIER_HASH_SCHEMA_VERSION,
+  FRONTIER_PROOF_SCHEMA_VERSION,
+  SUPPORTED_FRONTIER_HASH_SCHEMA_VERSIONS,
+  FrontierVerificationError,
+} from './frontier.js'
+export type {
+  FrontierClaimGate,
+  FrontierContractMetadata,
+  FrontierHashIdentity,
+  FrontierIssueCode,
+  FrontierProofMetadata,
+  FrontierProviderProofCell,
+  FrontierQuorumOptions,
+  FrontierQuorumResult,
+  FrontierVerificationIssue,
+} from './frontier.js'
 export { aggregate, comparePairedScores } from './aggregator.js'
 export { analyseScenarioItems, compareScenarioSets } from './diagnostics.js'
 export { exportInspectRunRecord, exportLmEvaluationSummary } from './interoperability.js'

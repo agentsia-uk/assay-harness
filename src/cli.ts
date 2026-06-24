@@ -32,6 +32,11 @@ import {
   writeProofBundleManifest,
 } from './proof.js'
 import { createStderrLogger } from './progress.js'
+import {
+  formatFrontierVerificationResult,
+  readFrontierContractMetadata,
+  verifyFrontierQuorum,
+} from './frontier.js'
 import type { Dataset, LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -393,12 +398,57 @@ proof
     console.log(formatProofBundleManifest(manifest))
   })
 
+const frontier = program
+  .command('frontier')
+  .description('verify public frontier proof metadata without running frontier models')
+
+frontier
+  .command('verify')
+  .description('fail closed unless public proof metadata satisfies the configured frontier quorum')
+  .argument('<proof>', 'path to public frontier proof metadata JSON')
+  .option('--contract <path>', 'path to a release contract JSON carrying scenarioSetHash and claimGate')
+  .option('--scenario-set-hash <hash>', 'expected scenario-set hash (overrides proof metadata)')
+  .option('--hash-schema-version <version>', 'expected scenario-set hash schema version (default: contract or proof)')
+  .option('--provider <id>', 'configured provider id; repeat or pass comma-separated ids', collectCsv, [])
+  .option('--quorum <n>', 'required verified provider-cell count (default: proof quorum or governed 2)', parseIntSafe)
+  .option('--max-proof-age-days <n>', 'fail if proof generatedAt is older than this many days', parseIntSafe)
+  .option('--json', 'output the verification result as JSON')
+  .action(async (proofPath: string, opts: FrontierVerifyOptions) => {
+    const proof = JSON.parse(await readFile(proofPath, 'utf8')) as unknown
+    const contract = opts.contract
+      ? readFrontierContractMetadata(JSON.parse(await readFile(opts.contract, 'utf8')) as unknown)
+      : undefined
+
+    const result = verifyFrontierQuorum(proof, {
+      ...(contract ?? {}),
+      ...(opts.scenarioSetHash ? { scenarioSetHash: opts.scenarioSetHash } : {}),
+      ...(opts.hashSchemaVersion ? { hashSchemaVersion: opts.hashSchemaVersion } : {}),
+      ...(opts.provider.length > 0 ? { providers: opts.provider } : {}),
+      ...(opts.quorum !== undefined ? { requiredCount: opts.quorum } : {}),
+      ...(opts.maxProofAgeDays !== undefined ? { maxProofAgeDays: opts.maxProofAgeDays } : {}),
+    })
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else if (result.ok) {
+      console.log(formatFrontierVerificationResult(result))
+    } else {
+      process.stderr.write(`${formatFrontierVerificationResult(result)}\n`)
+    }
+
+    if (!result.ok) process.exitCode = 1
+  })
+
 await program.parseAsync(process.argv)
 
 function parseIntSafe(value: string): number {
   const n = Number.parseInt(value, 10)
   if (Number.isNaN(n)) throw new Error(`expected integer, got "${value}"`)
   return n
+}
+
+function collectCsv(value: string, previous: string[]): string[] {
+  return [...previous, ...value.split(',').map((item) => item.trim()).filter(Boolean)]
 }
 
 interface RunOptions {
@@ -441,6 +491,16 @@ interface ProofBuildOptions {
   contract: string
   dataset?: string
   out?: string
+}
+
+interface FrontierVerifyOptions {
+  contract?: string
+  scenarioSetHash?: string
+  hashSchemaVersion?: string
+  provider: string[]
+  quorum?: number
+  maxProofAgeDays?: number
+  json?: boolean
 }
 
 function isRunRecordLike(value: unknown): value is RunRecord {

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "assay.frontier-proof.v1",
+  "benchmark": "assay-adtech",
+  "hashSchemaVersion": "v1",
+  "scenarioSetHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "generatedAt": "2026-06-20T00:00:00.000Z",
+  "expiresAt": "2000-01-01T00:00:00.000Z",
+  "claimGate": {
+    "status": "allowed",
+    "leaderboardClaimsAllowed": true,
+    "gatedDomains": []
+  },
+  "quorum": {
+    "required": 2,
+    "providers": ["claude", "gpt", "gemini"]
+  },
+  "providerCells": [
+    {
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "hashSchemaVersion": "v1",
+      "scenarioSetHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "verified",
+      "generatedAt": "2026-06-20T00:05:00.000Z",
+      "expiresAt": "2099-01-01T00:00:00.000Z"
+    },
+    {
+      "provider": "gpt",
+      "model": "gpt-5.5",
+      "hashSchemaVersion": "v1",
+      "scenarioSetHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "verified",
+      "generatedAt": "2026-06-20T00:06:00.000Z",
+      "expiresAt": "2099-01-01T00:00:00.000Z"
+    }
+  ]
+}
