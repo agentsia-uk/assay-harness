@@ -97,6 +97,60 @@ describe('frontier quorum verifier', () => {
     )
   })
 
+  it('fails closed when proof metadata tries to lower the governed quorum', () => {
+    const loweredQuorum: FrontierProofMetadata = {
+      ...(proofPass as FrontierProofMetadata),
+      quorum: {
+        ...(proofPass as FrontierProofMetadata).quorum,
+        required: 1,
+      },
+    }
+
+    const result = verifyFrontierQuorum(loweredQuorum, {
+      ...readFrontierContractMetadata(contractAllowed),
+      providers: PROVIDERS,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(codes(result)).toContain('invalid-quorum-config')
+    expect(result.errors.map((error) => error.message).join('\n')).toContain(
+      'below governed minimum 2',
+    )
+  })
+
+  it('fails closed when max proof age is enforced without generatedAt evidence', () => {
+    const proofWithoutGeneratedAt = { ...(proofPass as FrontierProofMetadata) }
+    delete proofWithoutGeneratedAt.generatedAt
+
+    const result = verifyFrontierQuorum(proofWithoutGeneratedAt, {
+      ...readFrontierContractMetadata(contractAllowed),
+      providers: PROVIDERS,
+      maxProofAgeDays: 7,
+      now: '2026-06-24T00:00:00.000Z',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(codes(result)).toContain('invalid-proof-metadata')
+    expect(result.errors.map((error) => error.message).join('\n')).toContain(
+      'generatedAt is required',
+    )
+  })
+
+  it('rejects release contracts with missing or malformed claim gates', () => {
+    expect(() =>
+      readFrontierContractMetadata({
+        ...(contractAllowed as Record<string, unknown>),
+        claimGate: { status: 'maybe' },
+      }),
+    ).toThrow(/invalid claimGate/)
+
+    const contractWithoutClaimGate = { ...(contractAllowed as Record<string, unknown>) }
+    delete contractWithoutClaimGate['claimGate']
+    expect(() => readFrontierContractMetadata(contractWithoutClaimGate)).toThrow(
+      /requires claimGate/,
+    )
+  })
+
   it('fails closed on stale proof metadata', () => {
     const result = verifyFrontierQuorum(proofStale, {
       ...readFrontierContractMetadata(contractAllowed),

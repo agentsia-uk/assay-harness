@@ -199,8 +199,17 @@ export function verifyFrontierQuorum(
     pushExpiryIssue(proofExpiry, now, 'proof', errors)
   }
   const proofGeneratedAt = optionalString(proofObj, 'generatedAt')
-  if (proofGeneratedAt && options.maxProofAgeDays !== undefined) {
-    pushMaxAgeIssue(proofGeneratedAt, options.maxProofAgeDays, now, errors)
+  if (options.maxProofAgeDays !== undefined) {
+    if (proofGeneratedAt) {
+      pushMaxAgeIssue(proofGeneratedAt, options.maxProofAgeDays, now, errors)
+    } else {
+      errors.push(
+        issue(
+          'invalid-proof-metadata',
+          'frontierProof.generatedAt is required when maxProofAgeDays is enforced',
+        ),
+      )
+    }
   }
 
   const proofClaimGate = parseClaimGate(proofObj['claimGate'], 'frontierProof.claimGate', errors)
@@ -243,6 +252,13 @@ export function verifyFrontierQuorum(
       issue(
         'invalid-quorum-config',
         `frontier quorum requiredCount must be a positive integer; got ${JSON.stringify(requiredCount)}`,
+      ),
+    )
+  } else if (requiredCount < FRONTIER_QUORUM_REQUIRED) {
+    errors.push(
+      issue(
+        'invalid-quorum-config',
+        `frontier quorum requiredCount ${requiredCount} is below governed minimum ${FRONTIER_QUORUM_REQUIRED}`,
       ),
     )
   } else if (configuredProviders.length > 0 && requiredCount > configuredProviders.length) {
@@ -381,7 +397,17 @@ export function readFrontierContractMetadata(contractInput: unknown): FrontierCo
     optionalString(metadata, 'hashSchemaVersion') ??
     optionalString(contract, 'hashSchemaVersion') ??
     DEFAULT_FRONTIER_HASH_SCHEMA_VERSION
-  const claimGate = parseClaimGate(contract['claimGate'], 'contract.claimGate', [])
+  if (contract['claimGate'] === undefined) {
+    throw new Error('frontier contract metadata requires claimGate')
+  }
+  const errors: FrontierVerificationIssue[] = []
+  const claimGate = parseClaimGate(contract['claimGate'], 'contract.claimGate', errors)
+  if (errors.length > 0 || !claimGate) {
+    throw new Error(
+      `frontier contract metadata has invalid claimGate: ` +
+        errors.map((error) => error.message).join('; '),
+    )
+  }
 
   return { scenarioSetHash, hashSchemaVersion, claimGate }
 }
