@@ -49,7 +49,20 @@ export type {
 export { aggregate, comparePairedScores } from './aggregator.js'
 export { analyseScenarioItems, compareScenarioSets } from './diagnostics.js'
 export { exportInspectRunRecord, exportLmEvaluationSummary } from './interoperability.js'
-export { writeRunRecord, readRunRecord, newRunId, computeScenarioSetHash } from './serialiser.js'
+export {
+  writeRunRecord,
+  readRunRecord,
+  newRunId,
+  computeScenarioSetHash,
+  computeScenarioSetHashBySchema,
+  computeScenarioSetHashV2,
+  SCENARIO_SET_HASH_SCHEMA_V1,
+  SCENARIO_SET_HASH_SCHEMA_V2,
+  SCENARIO_SET_HASH_V2_HASHED_FIELDS,
+  SCENARIO_SET_HASH_V2_EXCLUDED_PRIVATE_FIELDS,
+  UnknownScenarioSetHashSchemaError,
+} from './serialiser.js'
+export type { ComputeScenarioSetHashBySchemaOptions } from './serialiser.js'
 export { pooled } from './concurrency.js'
 export { withJudgeCache } from './judge-cache.js'
 export type { JudgeCacheOptions } from './judge-cache.js'

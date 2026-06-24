@@ -163,6 +163,103 @@ export interface ModelAggregate {
   statisticalClaims?: StatisticalClaimMetadata
 }
 
+export type ScenarioSetHashSchemaVersion = 'v1' | 'v2'
+
+export interface ScenarioSetPluginIdentity {
+  id: string
+  version?: string
+  uri?: string
+}
+
+export interface ScenarioSetFingerprint {
+  id: string
+  version?: string
+  digest?: string
+  uri?: string
+}
+
+export interface ScenarioMultiTurnShape {
+  id: string
+  multiTurn: boolean
+  runnerVisibleTurnCount: number
+  seedHistoryTurnCount: number
+  userTurnCount: number
+  persistenceCriteriaCount: number
+}
+
+export interface ScenarioSetMultiTurnSummary {
+  scenarioCount: number
+  singleTurnScenarioCount: number
+  multiTurnScenarioCount: number
+  maxRunnerVisibleTurns: number
+  scenarios: ScenarioMultiTurnShape[]
+}
+
+export interface ScenarioSetHashV2Options {
+  /** Public benchmark domain id, e.g. "adtech". */
+  domain: string
+  /** Public package/domain plugin that produced the scenario shape. */
+  plugin: ScenarioSetPluginIdentity
+  /**
+   * Public-safe implementation ids/digests for canonicalisers, adapters, or
+   * domain packs. Never put private prompt material or answer keys here.
+   */
+  implementationFingerprints?: ScenarioSetFingerprint[]
+  /**
+   * Public-safe scorer ids/digests. Private scorer data should be represented
+   * by an opaque fingerprint, not by embedding answer-key fields.
+   */
+  scorerFingerprints?: ScenarioSetFingerprint[]
+}
+
+export interface ScenarioSetHashComputationV1 {
+  hashSchemaVersion: 'v1'
+  scenarioSetHash: string
+}
+
+export interface ScenarioSetHashMetadataV1 {
+  hashSchemaVersion?: 'v1'
+  scenarioSetHash: string
+  shortHash?: string
+  scenarioCount?: number
+  [key: string]: unknown
+}
+
+export interface ScenarioSetHashMetadataV2 {
+  hashSchemaVersion: 'v2'
+  scenarioSetHash: string
+  shortHash: string
+  dataset: {
+    name: string
+    version: string
+  }
+  domain: string
+  plugin: ScenarioSetPluginIdentity
+  scenarioCount: number
+  axes: string[]
+  rubricDescriptors: string[]
+  scoringDescriptors: string[]
+  multiTurn: ScenarioSetMultiTurnSummary
+  implementationFingerprints: ScenarioSetFingerprint[]
+  scorerFingerprints: ScenarioSetFingerprint[]
+  hashedFields: string[]
+  excludedPrivateFields: string[]
+}
+
+export interface ScenarioSetHashComputationV2 {
+  hashSchemaVersion: 'v2'
+  scenarioSetHash: string
+  metadata: ScenarioSetHashMetadataV2
+}
+
+export type ScenarioSetHashComputation =
+  | ScenarioSetHashComputationV1
+  | ScenarioSetHashComputationV2
+
+export type ScenarioSetHashMetadata =
+  | ScenarioSetHashMetadataV1
+  | ScenarioSetHashMetadataV2
+
 export interface RunRecord {
   /** Generated run identifier. */
   id: string
@@ -182,6 +279,17 @@ export interface RunRecord {
    * backwards compatibility with pre-binding RunRecords; new runs always set it.
    */
   scenarioSetHash?: string
+  /**
+   * Optional schema discriminator for `scenarioSetHash`. Missing means legacy
+   * v0/v1 compatibility; unknown explicit versions fail validation closed.
+   */
+  scenarioSetHashSchemaVersion?: ScenarioSetHashSchemaVersion
+  /**
+   * Additive metadata describing how `scenarioSetHash` was computed. v2
+   * metadata binds public corpus identity without exposing private answer-key
+   * material.
+   */
+  scenarioSetHashMetadata?: ScenarioSetHashMetadata
   runners: string[]
   createdAt: string
   responses: ModelResponse[]

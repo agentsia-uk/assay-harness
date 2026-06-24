@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateRunRecord, assertValidRunRecord } from '../src/validate.js'
 import type { RunRecord } from '../src/types.js'
+import { computeScenarioSetHashV2 } from '../src/serialiser.js'
 
 function minimalRecord(): RunRecord {
   return {
@@ -30,10 +31,102 @@ function minimalRecord(): RunRecord {
 }
 
 describe('validateRunRecord', () => {
-  it('accepts a valid minimal RunRecord', () => {
+  it('accepts a valid minimal legacy v0 RunRecord without scenario-set hash metadata', () => {
     const result = validateRunRecord(minimalRecord())
     expect(result.valid).toBe(true)
     expect(result.errors).toHaveLength(0)
+  })
+
+  it('accepts a legacy v1 RunRecord with only a bare scenarioSetHash', () => {
+    const r = minimalRecord()
+    r.scenarioSetHash = 'a'.repeat(64)
+
+    const result = validateRunRecord(r)
+
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('accepts a v2 RunRecord with additive scenario-set hash metadata', () => {
+    const r = minimalRecord()
+    const metadata = computeScenarioSetHashV2(
+      {
+        name: r.dataset.name,
+        version: r.dataset.version,
+        scenarios: [
+          {
+            id: 'sc-1',
+            axes: ['quality'],
+            input: { messages: [{ role: 'user', content: 'hello' }] },
+            rubric: { kind: 'programmatic', checker: 'non-empty' },
+          },
+        ],
+      },
+      {
+        domain: 'adtech',
+        plugin: { id: 'agentsia.assay-adtech', version: '1.8.0-rc.4' },
+        implementationFingerprints: [{ id: 'assay-harness:runner-visible-input', version: '1' }],
+        scorerFingerprints: [{ id: 'assay-harness:programmatic-rubric', version: '1' }],
+      },
+    )
+    r.scenarioSetHashSchemaVersion = metadata.hashSchemaVersion
+    r.scenarioSetHash = metadata.scenarioSetHash
+    r.scenarioSetHashMetadata = metadata
+
+    const result = validateRunRecord(r)
+
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('fails closed on unknown scenario-set hash schema versions', () => {
+    const r = minimalRecord()
+    const raw = r as unknown as Record<string, unknown>
+    raw['scenarioSetHashSchemaVersion'] = 'v999'
+    r.scenarioSetHash = 'b'.repeat(64)
+    raw['scenarioSetHashMetadata'] = {
+      hashSchemaVersion: 'v999',
+      scenarioSetHash: r.scenarioSetHash,
+    }
+
+    const result = validateRunRecord(r)
+
+    expect(result.valid).toBe(false)
+    expect(result.errors.join('\n')).toContain('unknown scenario-set hash schema version')
+  })
+
+  it('rejects v2 metadata whose hash does not match RunRecord.scenarioSetHash', () => {
+    const r = minimalRecord()
+    const metadata = computeScenarioSetHashV2(
+      {
+        name: r.dataset.name,
+        version: r.dataset.version,
+        scenarios: [
+          {
+            id: 'sc-1',
+            axes: ['quality'],
+            input: { messages: [{ role: 'user', content: 'hello' }] },
+            rubric: { kind: 'programmatic', checker: 'non-empty' },
+          },
+        ],
+      },
+      {
+        domain: 'adtech',
+        plugin: { id: 'agentsia.assay-adtech', version: '1.8.0-rc.4' },
+        implementationFingerprints: [{ id: 'assay-harness:runner-visible-input', version: '1' }],
+        scorerFingerprints: [{ id: 'assay-harness:programmatic-rubric', version: '1' }],
+      },
+    )
+    r.scenarioSetHashSchemaVersion = metadata.hashSchemaVersion
+    r.scenarioSetHash = 'c'.repeat(64)
+    r.scenarioSetHashMetadata = metadata
+
+    const result = validateRunRecord(r)
+
+    expect(result.valid).toBe(false)
+    expect(result.errors.join('\n')).toContain(
+      'RunRecord.scenarioSetHashMetadata.scenarioSetHash must match RunRecord.scenarioSetHash',
+    )
   })
 
   it('rejects a non-object', () => {
