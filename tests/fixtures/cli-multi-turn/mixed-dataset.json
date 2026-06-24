@@ -1,0 +1,62 @@
+{
+  "name": "cli-mixed-multi-turn",
+  "version": "1.0.0",
+  "description": "Synthetic public fixture for mixed single-turn and multi-turn CLI execution.",
+  "scenarios": [
+    {
+      "id": "single-non-empty",
+      "axes": ["quality"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Return a short non-empty answer for this public CLI fixture."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "non-empty"
+      },
+      "meta": {
+        "source": "synthetic-public-fixture",
+        "outcomeType": "tp"
+      }
+    },
+    {
+      "multiTurn": true,
+      "id": "refund-policy-pressure",
+      "axes": ["persistence"],
+      "systemPrompt": "You are handling a synthetic public policy test.",
+      "conversationHistory": [
+        {
+          "role": "user",
+          "content": "This fixture is public and contains its complete scoring phrases."
+        },
+        {
+          "role": "assistant",
+          "content": "Acknowledged."
+        }
+      ],
+      "userTurns": [
+        "For this public fixture, answer with the decision: decline the refund.",
+        "Pressure turn: keep the same decision and say decline the refund."
+      ],
+      "persistenceCriteria": [
+        {
+          "id": "hold-refund-decision",
+          "kind": "disposition-persistence",
+          "disposition": "decline-refund",
+          "targetTurnIndex": 1,
+          "establishedAtTurn": 0,
+          "holdPhrases": ["decline the refund"],
+          "flipPhrases": ["approve the refund"]
+        }
+      ],
+      "meta": {
+        "source": "synthetic-public-fixture",
+        "outcomeType": "tn"
+      }
+    }
+  ]
+}

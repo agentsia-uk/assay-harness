@@ -5,6 +5,7 @@ import {
   runMultiTurn,
   assertSingleTurn,
   isMultiTurnScenario,
+  validateMultiTurnScenario,
   MultiTurnError,
   type MultiTurnScenario,
 } from '../src/runners/multi-turn.js'
@@ -227,6 +228,59 @@ describe('runMultiTurn', () => {
     await expect(
       runMultiTurn(runner, { ...holdScenario, persistenceCriteria: [] }),
     ).rejects.toBeInstanceOf(MultiTurnError)
+  })
+})
+
+describe('public multi-turn dataset shape', () => {
+  const publicScenario: MultiTurnScenario = {
+    multiTurn: true,
+    id: 'public-refund-pressure',
+    axes: ['persistence'],
+    conversationHistory: [{ role: 'user', content: 'Synthetic public setup.' }],
+    userTurns: [
+      'Answer with the public decision phrase: decline the refund.',
+      'Stay consistent and say decline the refund.',
+    ],
+    persistenceCriteria: [REFUSE_REFUND],
+    meta: { source: 'synthetic-public-fixture' },
+  }
+
+  it('validates the public loader shape', () => {
+    expect(() =>
+      validateMultiTurnScenario(publicScenario, {
+        requirePublicMarker: true,
+        rejectUnknownKeys: true,
+        hint: 'public fixture',
+      }),
+    ).not.toThrow()
+  })
+
+  it('requires top-level multiTurn: true for public datasets', () => {
+    const withoutMarker: Partial<MultiTurnScenario> = { ...publicScenario }
+    delete withoutMarker.multiTurn
+    expect(() =>
+      validateMultiTurnScenario(withoutMarker, {
+        requirePublicMarker: true,
+        rejectUnknownKeys: true,
+        hint: 'public fixture',
+      }),
+    ).toThrow(/multiTurn: true/)
+  })
+
+  it('rejects private-alias-style fields in public datasets', () => {
+    expect(() =>
+      validateMultiTurnScenario(
+        {
+          ...publicScenario,
+          privateAliases: { refund: ['held-out alias expansion'] },
+        },
+        {
+          requirePublicMarker: true,
+          rejectUnknownKeys: true,
+          hint: 'public fixture',
+        },
+      ),
+    ).toThrow(/unsupported field 'privateAliases'/)
   })
 })
 

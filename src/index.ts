@@ -118,12 +118,14 @@ export {
   runMultiTurn,
   assertSingleTurn,
   isMultiTurnScenario,
+  validateMultiTurnScenario,
   MultiTurnError,
 } from './runners/multi-turn.js'
 export type {
   MultiTurnScenario,
   MultiTurnResult,
   ConversationTurn,
+  MultiTurnValidationOptions,
 } from './runners/multi-turn.js'
 export {
   gradePersistence,

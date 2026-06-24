@@ -1,0 +1,25 @@
+{
+  "name": "cli-legacy-meta-multiturn",
+  "version": "1.0.0",
+  "scenarios": [
+    {
+      "id": "legacy-meta-only",
+      "axes": ["persistence"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "This marker-only shape must fail closed."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "non-empty"
+      },
+      "meta": {
+        "multiTurn": true
+      }
+    }
+  ]
+}

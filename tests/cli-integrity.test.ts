@@ -70,7 +70,7 @@ describe('CLI integrity wiring', () => {
     expect(stderr).toContain('scenario-set hash mismatch')
   }, 30_000)
 
-  it('refuses multiTurn scenarios on the single-shot run path', async () => {
+  it('refuses legacy meta.multiTurn scenarios before the single-shot run path', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-cli-multiturn-'))
     const datasetPath = join(dir, 'dataset.json')
     const out = join(dir, 'run.json')
@@ -113,7 +113,7 @@ describe('CLI integrity wiring', () => {
     ])
 
     expect(code).not.toBe(0)
-    expect(stderr).toContain("scenario 'multi-turn-scenario' is marked multiTurn")
+    expect(stderr).toContain('legacy meta.multiTurn')
     await expect(readFile(out, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   }, 30_000)
 })
