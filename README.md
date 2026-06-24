@@ -219,6 +219,35 @@ Some scenarios are multi-turn: they submit a sequence of adversarial user turns 
 
 `analyseScenarioItems()` reports item-level pass rates, outcome-type coverage, and possible leakage when scenario prompts overlap known training prompts. `compareScenarioSets()` reports added, removed, changed, and suspiciously overlapping scenarios between dataset versions. These diagnostics are intended to help Modelsmith decide whether to generate new training scenarios, revise weak eval items, or block contaminated training data.
 
+`auditScenarioSet()` is the broader public methodology audit. It is domain-generic: the core reads public scenario metadata such as `meta.outcomeType` and lane metadata, while release-specific checks can be supplied as `ScenarioDiagnosticsPlugin` instances. The built-in `createMetadataFreshnessPlugin()` is a generic plugin helper for metadata such as `meta.domainFacts`; adtech-specific stale-fact policy still belongs outside the core package.
+
+The CLI exposes the same report in readable and JSON forms:
+
+```bash
+pnpm assay diagnostics examples/scenarios
+pnpm assay diagnostics path/to/public-export.json --json
+pnpm assay diagnostics path/to/public-export.json \
+  --training-prompts path/to/training-prompts.txt \
+  --required-outcome tp --required-outcome tn \
+  --required-outcome fp-guard --required-outcome fn-guard \
+  --required-lane bid-floor --required-lane pmp \
+  --fail-on-claim-blocking
+```
+
+Diagnostics are labelled by claim impact:
+
+| Diagnostic | Default impact | Why |
+|---|---|---|
+| Missing `meta.outcomeType` or missing caller-required outcome type | Claim-blocking | Public benchmark claims require explicit outcome stratification. |
+| Missing caller-required lane | Claim-blocking | A required methodology lane is absent from the published scenario set. |
+| Missing lane metadata with no caller-required lane policy | Advisory | It weakens auditability but may be acceptable for tiny examples. |
+| Identical duplicate prompts | Claim-blocking | Duplicate items can distort scenario counts and composite claims. |
+| Near-duplicate prompts | Advisory | Similar prompts need review, but a domain owner may intentionally vary a prompt family. |
+| Leakage against supplied training prompts | Claim-blocking | Contaminated scenarios should not support public claims. |
+| `non-empty` or smoke-only/sign-blind `contains` rubrics | Claim-blocking | Smoke checkers exercise harness plumbing rather than benchmark-grade scoring. |
+| Too-easy / too-hard scored items | Advisory | They guide item revision but do not prove the scenario is invalid. |
+| Plugin findings such as stale domain facts | Plugin-defined | Domain freshness windows are release policy, so plugins choose advisory or claim-blocking severity. |
+
 ## Interoperability
 
 `exportInspectRunRecord()` and `exportLmEvaluationSummary()` convert native Assay records into external-eval-friendly shapes for Inspect and lm-evaluation-harness style workflows. Native Assay records remain the source of truth because they preserve scenario hashes, privacy classification, scorer metadata, and Modelsmith release boundaries.
