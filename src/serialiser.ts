@@ -16,6 +16,7 @@ import type {
   ScenarioSetPluginIdentity,
 } from './types.js'
 import { assertValidRunRecord } from './validate.js'
+import { isMultiTurnScenario } from './runners/multi-turn.js'
 
 export const SCENARIO_SET_HASH_SCHEMA_V1 = 'v1' as const
 export const SCENARIO_SET_HASH_SCHEMA_V2 = 'v2' as const
@@ -91,6 +92,18 @@ export async function readRunRecord(path: string): Promise<RunRecord> {
  * do not move the corpus hash, mirroring Modelsmith's scenario-set-hash intent.
  */
 function scenarioHashContribution(scenario: Scenario): unknown {
+  if (isMultiTurnScenario(scenario)) {
+    return {
+      id: scenario.id,
+      axes: [...scenario.axes].sort(),
+      multiTurn: true,
+      ...(scenario.systemPrompt ? { systemPrompt: scenario.systemPrompt } : {}),
+      conversationHistory: scenario.conversationHistory ?? scenario.seedHistory ?? [],
+      userTurns: scenario.userTurns,
+      persistenceCriteria: scenario.persistenceCriteria,
+    }
+  }
+
   return {
     id: scenario.id,
     axes: [...scenario.axes].sort(),

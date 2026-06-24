@@ -2,6 +2,11 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve, basename } from 'node:path'
 
 import type { Dataset, Scenario } from './types.js'
+import {
+  isMultiTurnScenario,
+  MultiTurnError,
+  validateMultiTurnScenario,
+} from './runners/multi-turn.js'
 
 /**
  * Load a dataset from a directory of JSON scenario files or a single JSON
@@ -57,7 +62,7 @@ async function loadDatasetFromDirectory(dir: string): Promise<Dataset> {
   for (const f of files) {
     const raw = await readFile(join(scenarioDir, f), 'utf8')
     const parsed = JSON.parse(raw) as Scenario
-    validateScenario(parsed, f)
+    validateScenarioItem(parsed, f)
     scenarios.push(parsed)
   }
 
@@ -75,8 +80,28 @@ function parseBundle(raw: string, hint: string): Dataset {
   if (!Array.isArray(parsed.scenarios)) {
     throw new Error(`loader: bundle 'scenarios' must be an array (${hint})`)
   }
-  parsed.scenarios.forEach((s, i) => validateScenario(s, `${hint}#${i}`))
+  parsed.scenarios.forEach((s, i) => validateScenarioItem(s, `${hint}#${i}`))
   return parsed as Dataset
+}
+
+function validateScenarioItem(value: unknown, hint: string): void {
+  if (looksLikePublicMultiTurn(value)) {
+    try {
+      validateMultiTurnScenario(value, {
+        requirePublicMarker: true,
+        rejectUnknownKeys: true,
+        hint: `loader: multi-turn scenario (${hint})`,
+      })
+    } catch (error) {
+      if (error instanceof MultiTurnError) {
+        throw new Error(error.message)
+      }
+      throw error
+    }
+    return
+  }
+
+  validateScenario(value as Scenario, hint)
 }
 
 function validateScenario(s: Scenario, hint: string): void {
@@ -84,8 +109,22 @@ function validateScenario(s: Scenario, hint: string): void {
   if (!Array.isArray(s.axes) || s.axes.length === 0) {
     throw new Error(`loader: scenario '${s.id}' must declare at least one axis (${hint})`)
   }
+  if (s.meta?.['multiTurn'] === true) {
+    throw new Error(
+      `loader: scenario '${s.id}' uses legacy meta.multiTurn without the public ` +
+        `multi-turn shape (${hint}). Use top-level multiTurn: true with userTurns ` +
+        `and persistenceCriteria so the CLI can run the persistence grader.`,
+    )
+  }
   if (!s.input?.messages || s.input.messages.length === 0) {
     throw new Error(`loader: scenario '${s.id}' missing input.messages (${hint})`)
   }
   if (!s.rubric) throw new Error(`loader: scenario '${s.id}' missing rubric (${hint})`)
+}
+
+function looksLikePublicMultiTurn(value: unknown): boolean {
+  if (isMultiTurnScenario(value)) return true
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const v = value as Record<string, unknown>
+  return v['conversationHistory'] !== undefined || v['multiTurn'] !== undefined
 }

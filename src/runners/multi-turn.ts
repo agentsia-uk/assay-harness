@@ -62,11 +62,18 @@ export interface ConversationTurn {
  * `userTurns`.
  */
 export interface MultiTurnScenario {
+  /**
+   * Public dataset marker. Scenario authors should set this at the top level
+   * in bundles/directories so the loader can dispatch to the multi-turn path.
+   */
+  multiTurn?: true
   id: string
   axes: string[]
   /** Optional system prompt prepended to every turn. */
   systemPrompt?: string
-  /** Pre-seeded conversation (the contract's `conversationHistory`). */
+  /** Public pre-seeded conversation (the contract's `conversationHistory`). */
+  conversationHistory?: ConversationTurn[]
+  /** Backwards-compatible library alias. Public datasets should use `conversationHistory`. */
   seedHistory?: ConversationTurn[]
   /** Adversarial user prompts, submitted in order. MUST be non-empty. */
   userTurns: string[]
@@ -94,7 +101,105 @@ export interface MultiTurnResult {
 export function isMultiTurnScenario(value: unknown): value is MultiTurnScenario {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
-  return Array.isArray(v['userTurns']) || Array.isArray(v['persistenceCriteria'])
+  return v['multiTurn'] === true ||
+    Array.isArray(v['userTurns']) ||
+    Array.isArray(v['persistenceCriteria'])
+}
+
+const PUBLIC_MULTI_TURN_KEYS = new Set([
+  'multiTurn',
+  'id',
+  'axes',
+  'systemPrompt',
+  'conversationHistory',
+  'userTurns',
+  'persistenceCriteria',
+  'meta',
+])
+
+const PERSISTENCE_KINDS = new Set([
+  'fact-persistence',
+  'disposition-persistence',
+  'constraint-persistence',
+  'mechanism-persistence',
+  'evidence-update',
+])
+
+export interface MultiTurnValidationOptions {
+  /** Require the public top-level `multiTurn: true` marker. */
+  requirePublicMarker?: boolean
+  /** Reject fields outside the public bundle shape. */
+  rejectUnknownKeys?: boolean
+  /** Error-location label used by the loader. */
+  hint?: string
+}
+
+/**
+ * Validate a public multi-turn dataset item. This is intentionally stricter
+ * than the programmatic `runMultiTurn()` input so public bundles fail closed
+ * on private-answer-key leaks and ambiguous legacy marker-only shapes.
+ */
+export function validateMultiTurnScenario(
+  value: unknown,
+  options: MultiTurnValidationOptions = {},
+): asserts value is MultiTurnScenario {
+  const hint = options.hint ?? 'multi-turn scenario'
+  const scenario = asRecord(value, hint)
+
+  if (options.rejectUnknownKeys) {
+    for (const key of Object.keys(scenario)) {
+      if (!PUBLIC_MULTI_TURN_KEYS.has(key)) {
+        throw new MultiTurnError(
+          `${hint} has unsupported field '${key}'. Public multi-turn scenarios ` +
+            `must use top-level multiTurn, id, axes, optional systemPrompt, ` +
+            `optional conversationHistory, userTurns, persistenceCriteria, and meta only.`,
+        )
+      }
+    }
+  }
+
+  if (options.requirePublicMarker && scenario['multiTurn'] !== true) {
+    throw new MultiTurnError(
+      `${hint} must set top-level multiTurn: true. The legacy meta.multiTurn ` +
+        `marker is only a fail-closed guard and is not an executable public shape.`,
+    )
+  }
+  if (scenario['multiTurn'] !== undefined && scenario['multiTurn'] !== true) {
+    throw new MultiTurnError(`${hint}.multiTurn must be true when present.`)
+  }
+
+  requireStringField(scenario, 'id', hint)
+  requireStringArrayField(scenario, 'axes', hint, { nonEmpty: true })
+  optionalStringField(scenario, 'systemPrompt', hint)
+  validateConversationHistory(scenario['conversationHistory'], `${hint}.conversationHistory`)
+  validateConversationHistory(scenario['seedHistory'], `${hint}.seedHistory`)
+
+  const userTurns = requireStringArrayField(scenario, 'userTurns', hint, {
+    nonEmpty: true,
+    nonBlankItems: true,
+  })
+  if (userTurns.length === 0) {
+    throw new MultiTurnError(
+      `multi-turn scenario '${String(scenario['id'])}' has no userTurns — refusing to run a ` +
+        `multi-turn scenario with nothing to submit (fail-closed).`,
+    )
+  }
+
+  const criteria = scenario['persistenceCriteria']
+  if (!Array.isArray(criteria) || criteria.length === 0) {
+    throw new MultiTurnError(
+      `multi-turn scenario '${String(scenario['id'])}' has no persistenceCriteria — a ` +
+        `multi-turn scenario with no persistence check cannot be graded; refusing rather ` +
+        `than scoring it vacuously.`,
+    )
+  }
+  criteria.forEach((criterion, index) =>
+    validatePersistenceCriterion(criterion, `${hint}.persistenceCriteria[${index}]`),
+  )
+
+  if (scenario['meta'] !== undefined && !isRecord(scenario['meta'])) {
+    throw new MultiTurnError(`${hint}.meta must be an object when present.`)
+  }
 }
 
 /**
@@ -114,24 +219,6 @@ export function assertSingleTurn(scenario: Scenario): void {
   }
 }
 
-function validate(scenario: MultiTurnScenario): void {
-  if (!Array.isArray(scenario.userTurns) || scenario.userTurns.length === 0) {
-    throw new MultiTurnError(
-      `multi-turn scenario '${scenario.id}' has no userTurns — refusing to run a multi-turn ` +
-        `scenario with nothing to submit (fail-closed).`,
-    )
-  }
-  if (
-    !Array.isArray(scenario.persistenceCriteria) ||
-    scenario.persistenceCriteria.length === 0
-  ) {
-    throw new MultiTurnError(
-      `multi-turn scenario '${scenario.id}' has no persistenceCriteria — a multi-turn scenario ` +
-        `with no persistence check cannot be graded; refusing rather than scoring it vacuously.`,
-    )
-  }
-}
-
 /**
  * Execute a multi-turn scenario against a runner and grade persistence.
  *
@@ -145,13 +232,14 @@ export async function runMultiTurn(
   scenario: MultiTurnScenario,
   opts: RunnerOptions = {},
 ): Promise<MultiTurnResult> {
-  validate(scenario)
+  validateMultiTurnScenario(scenario)
 
   const history: Message[] = []
   if (scenario.systemPrompt) {
     history.push({ role: 'system', content: scenario.systemPrompt })
   }
-  for (const seed of scenario.seedHistory ?? []) {
+  const seedHistory = scenario.conversationHistory ?? scenario.seedHistory ?? []
+  for (const seed of seedHistory) {
     history.push({ role: seed.role, content: seed.content })
   }
 
@@ -191,4 +279,174 @@ export async function runMultiTurn(
     value,
     graderVersion: PERSISTENCE_GRADER_VERSION,
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function asRecord(value: unknown, hint: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new MultiTurnError(`${hint} must be an object.`)
+  }
+  return value
+}
+
+function requireStringField(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+): string {
+  const value = obj[key]
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new MultiTurnError(`${hint}.${key} must be a non-empty string.`)
+  }
+  return value
+}
+
+function optionalStringField(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+): void {
+  if (obj[key] !== undefined && typeof obj[key] !== 'string') {
+    throw new MultiTurnError(`${hint}.${key} must be a string when present.`)
+  }
+}
+
+function requireStringArrayField(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+  options: { nonEmpty?: boolean, nonBlankItems?: boolean } = {},
+): string[] {
+  const value = obj[key]
+  if (!Array.isArray(value)) {
+    throw new MultiTurnError(`${hint}.${key} must be an array.`)
+  }
+  if (options.nonEmpty && value.length === 0) {
+    throw new MultiTurnError(`${hint}.${key} must contain at least one item.`)
+  }
+  value.forEach((item, index) => {
+    if (typeof item !== 'string') {
+      throw new MultiTurnError(`${hint}.${key}[${index}] must be a string.`)
+    }
+    if (options.nonBlankItems && item.trim().length === 0) {
+      throw new MultiTurnError(`${hint}.${key}[${index}] must be non-empty.`)
+    }
+  })
+  return value as string[]
+}
+
+function optionalStringArrayField(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+  options: { nonEmpty?: boolean, nonBlankItems?: boolean } = {},
+): void {
+  if (obj[key] === undefined) return
+  requireStringArrayField(obj, key, hint, options)
+}
+
+function requireIntegerField(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+): number {
+  const value = obj[key]
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new MultiTurnError(`${hint}.${key} must be a non-negative integer.`)
+  }
+  return value
+}
+
+function optionalIntegerField(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+): void {
+  if (obj[key] === undefined) return
+  requireIntegerField(obj, key, hint)
+}
+
+function validateConversationHistory(value: unknown, hint: string): void {
+  if (value === undefined) return
+  if (!Array.isArray(value)) {
+    throw new MultiTurnError(`${hint} must be an array when present.`)
+  }
+  value.forEach((turn, index) => {
+    const obj = asRecord(turn, `${hint}[${index}]`)
+    const role = obj['role']
+    if (role !== 'user' && role !== 'assistant') {
+      throw new MultiTurnError(`${hint}[${index}].role must be "user" or "assistant".`)
+    }
+    requireStringField(obj, 'content', `${hint}[${index}]`)
+  })
+}
+
+function validatePersistenceCriterion(value: unknown, hint: string): void {
+  const criterion = asRecord(value, hint)
+  requireStringField(criterion, 'id', hint)
+  const kind = requireStringField(criterion, 'kind', hint)
+  if (!PERSISTENCE_KINDS.has(kind)) {
+    throw new MultiTurnError(
+      `${hint}.kind must be one of ${[...PERSISTENCE_KINDS].join(', ')}.`,
+    )
+  }
+  requireIntegerField(criterion, 'targetTurnIndex', hint)
+  optionalIntegerField(criterion, 'establishedAtTurn', hint)
+
+  switch (kind) {
+    case 'fact-persistence':
+      requireStringArrayField(criterion, 'factPhrases', hint, { nonEmpty: true })
+      return
+    case 'disposition-persistence':
+      requireStringField(criterion, 'disposition', hint)
+      requireStringArrayField(criterion, 'holdPhrases', hint, { nonEmpty: true })
+      requireStringArrayField(criterion, 'flipPhrases', hint, { nonEmpty: true })
+      return
+    case 'constraint-persistence':
+      requireStringField(criterion, 'constraint', hint)
+      requireStringArrayField(criterion, 'violationPhrases', hint, { nonEmpty: true })
+      optionalStringArrayField(criterion, 'acknowledgePhrases', hint, { nonEmpty: true })
+      return
+    case 'mechanism-persistence':
+      requireStringField(criterion, 'mechanism', hint)
+      optionalIntegerField(criterion, 'pressureTurnIndex', hint)
+      optionalStringArrayField(criterion, 'pressurePhrases', hint, { nonEmpty: true })
+      requireStringArrayField(criterion, 'retainedInvariantPhrases', hint, { nonEmpty: true })
+      requireStringArrayField(criterion, 'forbiddenReversalPhrases', hint)
+      optionalStringArrayGroups(criterion, 'requiredMechanismPhrases', hint)
+      optionalStringArrayGroups(criterion, 'requiredDetailPhrases', hint)
+      return
+    case 'evidence-update':
+      requireStringField(criterion, 'update', hint)
+      requireIntegerField(criterion, 'newEvidenceTurnIndex', hint)
+      requireStringArrayField(criterion, 'newEvidencePhrases', hint, { nonEmpty: true })
+      requireStringArrayField(criterion, 'updatedDiagnosisPhrases', hint, { nonEmpty: true })
+      requireStringArrayField(criterion, 'staleDiagnosisPhrases', hint, { nonEmpty: true })
+      return
+  }
+}
+
+function optionalStringArrayGroups(
+  obj: Record<string, unknown>,
+  key: string,
+  hint: string,
+): void {
+  const value = obj[key]
+  if (value === undefined) return
+  if (!Array.isArray(value)) {
+    throw new MultiTurnError(`${hint}.${key} must be an array when present.`)
+  }
+  value.forEach((group, index) => {
+    if (!Array.isArray(group) || group.length === 0) {
+      throw new MultiTurnError(`${hint}.${key}[${index}] must be a non-empty string array.`)
+    }
+    group.forEach((item, itemIndex) => {
+      if (typeof item !== 'string' || item.length === 0) {
+        throw new MultiTurnError(`${hint}.${key}[${index}][${itemIndex}] must be a non-empty string.`)
+      }
+    })
+  })
 }

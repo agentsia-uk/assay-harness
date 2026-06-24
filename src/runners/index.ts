@@ -62,10 +62,12 @@ export {
   runMultiTurn,
   assertSingleTurn,
   isMultiTurnScenario,
+  validateMultiTurnScenario,
   MultiTurnError,
 } from './multi-turn.js'
 export type {
   MultiTurnScenario,
   MultiTurnResult,
   ConversationTurn,
+  MultiTurnValidationOptions,
 } from './multi-turn.js'

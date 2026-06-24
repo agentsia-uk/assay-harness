@@ -298,6 +298,27 @@ export interface RunRecord {
   meta: {
     harnessVersion: string
     commandLine?: string
+    /** Additive v1 metadata; #69 can extend this into hash schema v2. */
+    scenarioSetHashMetadata?: {
+      schemaVersion: string
+      scenarioSetHash: string
+      scenarioCount: number
+      singleTurnScenarioCount?: number
+      multiTurnScenarioCount?: number
+    }
+    /** Multi-turn audit trail, present only when a run executes multi-turn scenarios. */
+    multiTurn?: {
+      graderVersion: string
+      results: Array<{
+        scenarioId: string
+        runnerId: string
+        value: number
+        graderVersion: string
+        turnObservations: unknown[]
+        persistence: unknown[]
+        turnResponseScenarioIds: string[]
+      }>
+    }
     /** Additional run-level context: host, env flags, etc. */
     env?: Record<string, unknown>
   }

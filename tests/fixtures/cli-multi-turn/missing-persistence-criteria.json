@@ -1,0 +1,15 @@
+{
+  "name": "cli-missing-persistence-criteria",
+  "version": "1.0.0",
+  "scenarios": [
+    {
+      "multiTurn": true,
+      "id": "missing-criteria",
+      "axes": ["persistence"],
+      "userTurns": [
+        "First public turn.",
+        "Second public turn."
+      ]
+    }
+  ]
+}

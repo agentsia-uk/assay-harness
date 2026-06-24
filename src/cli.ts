@@ -6,7 +6,14 @@ import { fileURLToPath } from 'node:url'
 
 import { loadDataset } from './loader.js'
 import { resolveRunner } from './runners/index.js'
-import { assertSingleTurn } from './runners/multi-turn.js'
+import {
+  assertSingleTurn,
+  isMultiTurnScenario,
+  runMultiTurn,
+  type MultiTurnResult,
+  type MultiTurnScenario,
+} from './runners/multi-turn.js'
+import { PERSISTENCE_GRADER_VERSION } from './persistence-grader.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
 import { analyseScenarioItems } from './diagnostics.js'
@@ -37,7 +44,7 @@ import {
   readFrontierContractMetadata,
   verifyFrontierQuorum,
 } from './frontier.js'
-import type { Dataset, LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
+import type { Dataset, LLMJudgeExecutor, ModelResponse, Runner, RunnerOptions, RunRecord, Score } from './types.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgPath = resolve(here, '..', 'package.json')
@@ -119,6 +126,10 @@ program
 
     const responses: ModelResponse[] = []
     const scores: Score[] = []
+    const multiTurnResults: MultiTurnRunMetadataItem[] = []
+    const multiTurnScenarioCount = dataset.scenarios.filter((scenario) =>
+      isMultiTurnScenario(scenario),
+    ).length
 
     for (const runner of runners) {
       const runnerOpts = {
@@ -127,35 +138,36 @@ program
       }
       const tasks = dataset.scenarios.map((scenario) => async () => {
         log.emit({ event: 'scenario:start', runId, runnerId: runner.id, scenarioId: scenario.id, at: at() })
-        let response: ModelResponse
+        let outcome: ScenarioRunOutcome
         try {
-          assertSingleTurn(scenario)
-          response = await runner.run(scenario, runnerOpts)
+          outcome = isMultiTurnScenario(scenario)
+            ? await runMultiTurnForRecord(runner, scenario, runnerOpts)
+            : await runSingleTurnForRecord(runner, scenario, runnerOpts, llmJudge)
         } catch (err) {
           const error = err instanceof Error ? err.message : String(err)
           log.emit({ event: 'scenario:error', runId, runnerId: runner.id, scenarioId: scenario.id, error, at: at() })
           throw err
         }
-        const scenarioScores = await score(response, scenario, llmJudge ? { llmJudge } : {})
-        const meanScore = scenarioScores.reduce((acc, s) => acc + s.value, 0) / (scenarioScores.length || 1)
+        const meanScore = outcome.scores.reduce((acc, s) => acc + s.value, 0) / (outcome.scores.length || 1)
         log.emit({
           event: 'scenario:end',
           runId,
           runnerId: runner.id,
           scenarioId: scenario.id,
           score: meanScore,
-          latencyMs: response.meta.latencyMs,
+          latencyMs: outcome.latencyMs,
           at: at(),
         })
-        return { response, scores: scenarioScores }
+        return outcome
       })
       const settled = await pooled(tasks, opts.concurrency)
       for (const result of settled) {
         if (result.status === 'rejected') {
           throw result.reason as Error
         }
-        responses.push(result.value.response)
+        responses.push(...result.value.responses)
         scores.push(...result.value.scores)
+        if (result.value.multiTurn) multiTurnResults.push(result.value.multiTurn)
       }
     }
 
@@ -219,6 +231,21 @@ program
       meta: {
         harnessVersion: pkg.version,
         commandLine: redactCommandLine(process.argv.slice(1)),
+        scenarioSetHashMetadata: {
+          schemaVersion: 'assay-harness.scenario-set-hash.v1',
+          scenarioSetHash,
+          scenarioCount: dataset.scenarios.length,
+          singleTurnScenarioCount: dataset.scenarios.length - multiTurnScenarioCount,
+          multiTurnScenarioCount,
+        },
+        ...(multiTurnResults.length > 0
+          ? {
+              multiTurn: {
+                graderVersion: PERSISTENCE_GRADER_VERSION,
+                results: multiTurnResults,
+              },
+            }
+          : {}),
       },
     }
 
@@ -448,6 +475,120 @@ frontier
   })
 
 await program.parseAsync(process.argv)
+
+interface ScenarioRunOutcome {
+  responses: ModelResponse[]
+  scores: Score[]
+  latencyMs: number
+  multiTurn?: MultiTurnRunMetadataItem
+}
+
+interface MultiTurnRunMetadataItem {
+  scenarioId: string
+  runnerId: string
+  value: number
+  graderVersion: string
+  turnObservations: MultiTurnResult['turns']
+  persistence: MultiTurnResult['persistence']
+  turnResponseScenarioIds: string[]
+}
+
+async function runSingleTurnForRecord(
+  runner: Runner,
+  scenario: Dataset['scenarios'][number],
+  runnerOpts: RunnerOptions,
+  llmJudge: LLMJudgeExecutor | undefined,
+): Promise<ScenarioRunOutcome> {
+  assertSingleTurn(scenario)
+  const response = await runner.run(scenario, runnerOpts)
+  const scenarioScores = await score(response, scenario, llmJudge ? { llmJudge } : {})
+  return {
+    responses: [response],
+    scores: scenarioScores,
+    latencyMs: response.meta.latencyMs,
+  }
+}
+
+async function runMultiTurnForRecord(
+  runner: Runner,
+  scenario: MultiTurnScenario,
+  runnerOpts: RunnerOptions,
+): Promise<ScenarioRunOutcome> {
+  const result = await runMultiTurn(runner, scenario, runnerOpts)
+  const response = collapseMultiTurnResponse(result)
+  const scores = scoreMultiTurnResult(result, scenario)
+  const meta: MultiTurnRunMetadataItem = {
+    scenarioId: scenario.id,
+    runnerId: runner.id,
+    value: result.value,
+    graderVersion: result.graderVersion,
+    turnObservations: result.turns,
+    persistence: result.persistence,
+    turnResponseScenarioIds: result.responses.map((turnResponse) => turnResponse.scenarioId),
+  }
+
+  return {
+    responses: [response],
+    scores,
+    latencyMs: response.meta.latencyMs,
+    multiTurn: meta,
+  }
+}
+
+function collapseMultiTurnResponse(result: MultiTurnResult): ModelResponse {
+  const lastResponse = result.responses[result.responses.length - 1]
+  const latencyMs = result.responses.reduce(
+    (sum, response) => sum + response.meta.latencyMs,
+    0,
+  )
+  const turnResponseScenarioIds = result.responses.map((response) => response.scenarioId)
+  const turnObservations = result.turns
+  const persistence = result.persistence
+
+  return {
+    runnerId: result.runnerId,
+    scenarioId: result.scenarioId,
+    output: result.turns[result.turns.length - 1]?.assistantText ?? '',
+    meta: {
+      provider: lastResponse?.meta.provider ?? 'unknown',
+      model: lastResponse?.meta.model ?? 'unknown',
+      ...(lastResponse?.meta.version ? { version: lastResponse.meta.version } : {}),
+      accessedAt: lastResponse?.meta.accessedAt ?? new Date().toISOString(),
+      ...(lastResponse?.meta.temperature !== undefined
+        ? { temperature: lastResponse.meta.temperature }
+        : {}),
+      ...(lastResponse?.meta.seed !== undefined ? { seed: lastResponse.meta.seed } : {}),
+      latencyMs,
+      extra: {
+        ...(lastResponse?.meta.extra ?? {}),
+        multiTurn: {
+          graderVersion: result.graderVersion,
+          turnObservations,
+          persistence,
+          turnResponseScenarioIds,
+        },
+      },
+    },
+  }
+}
+
+function scoreMultiTurnResult(
+  result: MultiTurnResult,
+  scenario: MultiTurnScenario,
+): Score[] {
+  const passed = result.persistence.filter((item) => item.verdict === 'pass').length
+  const total = result.persistence.length
+  const rationale = `${result.graderVersion}: ${passed}/${total} persistence criteria passed`
+
+  return scenario.axes.map((axis) => ({
+    runnerId: result.runnerId,
+    scenarioId: scenario.id,
+    axis,
+    value: result.value,
+    rationale,
+    claimStatus: 'programmatic',
+  }))
+}
 
 function parseIntSafe(value: string): number {
   const n = Number.parseInt(value, 10)
