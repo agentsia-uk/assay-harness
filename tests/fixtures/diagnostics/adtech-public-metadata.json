@@ -1,0 +1,123 @@
+{
+  "name": "adtech-public-diagnostics-fixture",
+  "version": "1.0.0",
+  "description": "Synthetic adtech-style public metadata for diagnostics tests. It contains no private answer keys.",
+  "scenarios": [
+    {
+      "id": "PUBLIC_ADTECH_TP_BID_FLOOR",
+      "axes": ["auction-integrity"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Review this public auction summary: publisher app bundle com.news, floor price changed from 0.80 to 1.60, seat bid rate fell 62%, and geo is GB. Identify the operational risk and recommended audit lane."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "non-empty"
+      },
+      "meta": {
+        "outcomeType": "tp",
+        "lane": "bid-floor",
+        "benchmarkTier": "public",
+        "privacy": "public",
+        "domainInput": {
+          "domain": "adtech",
+          "publicMetadataOnly": true
+        },
+        "domainFacts": [
+          {
+            "id": "iab-tcf-policy-snapshot",
+            "label": "IAB TCF policy snapshot",
+            "observedAt": "2026-01-10T00:00:00.000Z",
+            "maxAgeDays": 30
+          }
+        ]
+      }
+    },
+    {
+      "id": "PUBLIC_ADTECH_TP_BID_FLOOR_COPY",
+      "axes": ["auction-integrity"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Review this public auction summary: publisher app bundle com.news, floor price changed from 0.80 to 1.60, seat bid rate fell 62%, and geo is GB. Identify the operational risk and recommended audit lane."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "non-empty"
+      },
+      "meta": {
+        "outcomeType": "tp",
+        "lane": "bid-floor",
+        "benchmarkTier": "public",
+        "privacy": "public",
+        "domainInput": {
+          "domain": "adtech",
+          "publicMetadataOnly": true
+        }
+      }
+    },
+    {
+      "id": "PUBLIC_ADTECH_TN_BID_FLOOR_NEAR_COPY",
+      "axes": ["auction-integrity"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Review this public auction summary: publisher app bundle com.news, floor price changed from 0.80 to 1.55, seat bid rate fell 60%, and geo is GB. Identify the operational risk and recommended audit lane."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "non-empty"
+      },
+      "meta": {
+        "outcomeType": "tn",
+        "lane": "bid-floor",
+        "benchmarkTier": "public",
+        "privacy": "public",
+        "domainInput": {
+          "domain": "adtech",
+          "publicMetadataOnly": true
+        }
+      }
+    },
+    {
+      "id": "PUBLIC_ADTECH_FP_GUARD_PMP_DEAL",
+      "axes": ["deal-integrity"],
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Review this public PMP deal summary: deal id alpha-42 has a stable buyer seat, unchanged supply path, and normal bid density. Identify whether the evidence supports escalation."
+          }
+        ]
+      },
+      "rubric": {
+        "kind": "programmatic",
+        "checker": "contains",
+        "params": {
+          "expected": ["escalation"],
+          "smokeTestOnly": true
+        }
+      },
+      "meta": {
+        "outcomeType": "fp-guard",
+        "lane": "pmp",
+        "benchmarkTier": "public",
+        "privacy": "public",
+        "domainInput": {
+          "domain": "adtech",
+          "publicMetadataOnly": true
+        }
+      }
+    }
+  ]
+}

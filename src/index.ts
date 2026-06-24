@@ -47,7 +47,24 @@ export type {
   FrontierVerificationIssue,
 } from './frontier.js'
 export { aggregate, comparePairedScores } from './aggregator.js'
-export { analyseScenarioItems, compareScenarioSets } from './diagnostics.js'
+export {
+  analyseScenarioItems,
+  auditScenarioSet,
+  compareScenarioSets,
+  createMetadataFreshnessPlugin,
+  formatScenarioAuditReport,
+} from './diagnostics.js'
+export type {
+  DiagnosticSeverity,
+  MetadataFreshnessPluginOptions,
+  ScenarioDiagnosticFinding,
+  ScenarioDiagnosticKind,
+  ScenarioDiagnosticsPlugin,
+  ScenarioDiagnosticsPluginContext,
+  ScenarioDiagnosticsPluginFinding,
+  ScenarioSetAuditOptions,
+  ScenarioSetAuditReport,
+} from './diagnostics.js'
 export { exportInspectRunRecord, exportLmEvaluationSummary } from './interoperability.js'
 export {
   writeRunRecord,

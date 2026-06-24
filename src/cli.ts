@@ -2,7 +2,7 @@
 import { Command } from 'commander'
 import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { loadDataset } from './loader.js'
 import { resolveRunner } from './runners/index.js'
@@ -16,7 +16,11 @@ import {
 import { PERSISTENCE_GRADER_VERSION } from './persistence-grader.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
-import { analyseScenarioItems } from './diagnostics.js'
+import {
+  analyseScenarioItems,
+  auditScenarioSet,
+  formatScenarioAuditReport,
+} from './diagnostics.js'
 import {
   assertScenarioSetHashMatches,
   assertScenarioStratificationPublishable,
@@ -45,6 +49,7 @@ import {
   verifyFrontierQuorum,
 } from './frontier.js'
 import type { Dataset, LLMJudgeExecutor, ModelResponse, Runner, RunnerOptions, RunRecord, Score } from './types.js'
+import type { ScenarioDiagnosticsPlugin } from './diagnostics.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgPath = resolve(here, '..', 'package.json')
@@ -280,6 +285,57 @@ program
       console.log(JSON.stringify(result, null, 2))
     } else {
       console.log(formatCompareTable(result))
+    }
+  })
+
+program
+  .command('diagnostics')
+  .description('audit public scenario methodology diagnostics')
+  .argument('<dataset>', 'path to dataset directory or bundle file')
+  .option('--run <path>', 'optional RunRecord JSON path for pass-rate difficulty diagnostics')
+  .option('--training-prompts <path>', 'JSON array, {"prompts": [...]}, or newline-delimited training prompts')
+  .option('--required-outcome <type>', 'outcome type that must be represented; repeatable', collectOption, [])
+  .option('--required-lane <lane>', 'scenario lane that must be represented; repeatable', collectOption, [])
+  .option('--lane-key <key>', 'metadata key to read lanes from; repeatable', collectOption, [])
+  .option('--leakage-ngram-size <n>', 'token n-gram size for training prompt leakage checks', parseIntSafe)
+  .option('--leakage-threshold <n>', 'containment threshold for training prompt leakage checks', parseFloat)
+  .option('--near-duplicate-ngram-size <n>', 'token n-gram size for near-duplicate prompt checks', parseIntSafe)
+  .option('--near-duplicate-threshold <n>', 'containment threshold for near-duplicate prompt checks', parseFloat)
+  .option('--plugin <path>', 'diagnostics plugin module path; repeatable', collectOption, [])
+  .option('--json', 'output result as JSON')
+  .option('--fail-on-claim-blocking', 'exit non-zero when claim-blocking findings are present')
+  .action(async (datasetPath: string, opts: DiagnosticsOptions) => {
+    const [dataset, record, trainingPrompts, plugins] = await Promise.all([
+      loadDataset(datasetPath),
+      opts.run ? readRunRecord(opts.run) : Promise.resolve(undefined),
+      opts.trainingPrompts ? readTrainingPrompts(opts.trainingPrompts) : Promise.resolve(undefined),
+      loadDiagnosticPlugins(opts.plugin ?? []),
+    ])
+    const report = auditScenarioSet(dataset, {
+      ...(record ? { record } : {}),
+      ...(trainingPrompts ? { trainingPrompts } : {}),
+      ...(opts.leakageNgramSize !== undefined ? { leakageNgramSize: opts.leakageNgramSize } : {}),
+      ...(opts.leakageThreshold !== undefined ? { leakageNgramThreshold: opts.leakageThreshold } : {}),
+      ...(opts.nearDuplicateNgramSize !== undefined
+        ? { nearDuplicateNgramSize: opts.nearDuplicateNgramSize }
+        : {}),
+      ...(opts.nearDuplicateThreshold !== undefined
+        ? { nearDuplicateThreshold: opts.nearDuplicateThreshold }
+        : {}),
+      ...(opts.requiredOutcome.length > 0 ? { requiredOutcomeTypes: opts.requiredOutcome } : {}),
+      ...(opts.requiredLane.length > 0 ? { requiredLanes: opts.requiredLane } : {}),
+      ...(opts.laneKey.length > 0 ? { laneMetadataKeys: opts.laneKey } : {}),
+      ...(plugins.length > 0 ? { plugins } : {}),
+    })
+
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2))
+    } else {
+      process.stdout.write(formatScenarioAuditReport(report))
+    }
+
+    if (opts.failOnClaimBlocking && report.summary.claimBlockingCount > 0) {
+      process.exitCode = 1
     }
   })
 
@@ -635,6 +691,21 @@ interface CompareCliOptions {
   ciSeed: number
 }
 
+interface DiagnosticsOptions {
+  run?: string
+  trainingPrompts?: string
+  requiredOutcome: string[]
+  requiredLane: string[]
+  laneKey: string[]
+  leakageNgramSize?: number
+  leakageThreshold?: number
+  nearDuplicateNgramSize?: number
+  nearDuplicateThreshold?: number
+  plugin?: string[]
+  json?: boolean
+  failOnClaimBlocking?: boolean
+}
+
 interface PublishOptions {
   to: string
   dataset?: string
@@ -667,6 +738,76 @@ function isRunRecordLike(value: unknown): value is RunRecord {
     typeof (value as RunRecord).dataset === 'object' &&
     (value as RunRecord).dataset !== null
   )
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value]
+}
+
+async function readTrainingPrompts(path: string): Promise<string[]> {
+  const raw = await readFile(path, 'utf8')
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed)) return parsed.filter((value): value is string => typeof value === 'string')
+    if (isPlainObject(parsed) && Array.isArray(parsed['prompts'])) {
+      return parsed['prompts'].filter((value): value is string => typeof value === 'string')
+    }
+  } catch {
+    // Fall through to newline-delimited text. This keeps the CLI useful with
+    // exported prompt lists without requiring a wrapper JSON shape.
+  }
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+async function loadDiagnosticPlugins(paths: string[]): Promise<ScenarioDiagnosticsPlugin[]> {
+  const plugins: ScenarioDiagnosticsPlugin[] = []
+  for (const pluginPath of paths) {
+    const moduleUrl = pathToFileURL(resolve(pluginPath)).href
+    const mod = (await import(moduleUrl)) as Record<string, unknown>
+    plugins.push(...normaliseDiagnosticPlugins(mod['default'], pluginPath))
+    plugins.push(...normaliseDiagnosticPlugins(mod['plugin'], pluginPath))
+    plugins.push(...normaliseDiagnosticPlugins(mod['plugins'], pluginPath))
+  }
+  return dedupePlugins(plugins)
+}
+
+function normaliseDiagnosticPlugins(value: unknown, source: string): ScenarioDiagnosticsPlugin[] {
+  if (value === undefined) return []
+  const candidates = Array.isArray(value) ? value : [value]
+  return candidates.map((candidate) => {
+    if (!isDiagnosticPlugin(candidate)) {
+      throw new Error(
+        `diagnostics plugin "${source}" must export a plugin object with string id and run(context)`,
+      )
+    }
+    return candidate
+  })
+}
+
+function isDiagnosticPlugin(value: unknown): value is ScenarioDiagnosticsPlugin {
+  return (
+    isPlainObject(value) &&
+    typeof value['id'] === 'string' &&
+    typeof value['run'] === 'function'
+  )
+}
+
+function dedupePlugins(plugins: ScenarioDiagnosticsPlugin[]): ScenarioDiagnosticsPlugin[] {
+  const seen = new Set<string>()
+  const deduped: ScenarioDiagnosticsPlugin[] = []
+  for (const plugin of plugins) {
+    if (seen.has(plugin.id)) continue
+    seen.add(plugin.id)
+    deduped.push(plugin)
+  }
+  return deduped
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function assertPublishContract(
