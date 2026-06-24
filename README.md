@@ -127,6 +127,12 @@ node -e "const j=require('./assay-adtech-v1.8.0-rc.4-release-contract.json'); co
 
 A `RunRecord` is bound to the `scenarioSetHash` it was produced against, so a number is always tied to the exact corpus it was measured on and cannot be quoted against a different one. The benchmark claims page and release contract are the public source of truth for Assay-Adtech leaderboard claims. The sample files under `examples/scenarios` are only smoke-test fixtures for the harness package.
 
+New producers should publish schema-v2 hash metadata alongside the bare hash.
+Schema v2 binds dataset/domain/plugin identity, runner-visible input, axes,
+rubric/scoring descriptors, multi-turn shape, and public-safe implementation or
+scorer fingerprints without embedding private answer-key fields. See
+[`docs/scenario-set-hash-v2.md`](docs/scenario-set-hash-v2.md).
+
 ## Public Proof Bundles
 
 `assay proof build` creates a deterministic public proof manifest for a

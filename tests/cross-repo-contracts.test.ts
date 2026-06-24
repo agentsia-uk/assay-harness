@@ -55,6 +55,45 @@ describe('assay-release-contract v2 — mirrored Modelsmith fixtures', () => {
       expect(scenario.failCriteria).toBeTruthy()
     }
   })
+
+  it('accepts additive scenario-set hash schema v2 metadata on a release contract', () => {
+    const base = assayReleaseMinimum as Record<string, unknown>
+    const contract = validateAssayReleaseContractV2({
+      ...base,
+      scenarioSetHashMetadata: {
+        ...(base.scenarioSetHashMetadata as Record<string, unknown>),
+        hashSchemaVersion: 'v2',
+        dataset: { name: 'assay-adtech', version: '1.8.0-rc.4' },
+        domain: 'adtech',
+        plugin: { id: 'agentsia.assay-adtech', version: '1.8.0-rc.4' },
+        axes: ['auction-mechanics'],
+        rubricDescriptors: ['programmatic:non-empty'],
+        scoringDescriptors: ['programmatic:non-empty'],
+        multiTurn: {
+          scenarioCount: 0,
+          singleTurnScenarioCount: 0,
+          multiTurnScenarioCount: 0,
+          maxRunnerVisibleTurns: 0,
+          scenarios: [],
+        },
+        implementationFingerprints: [
+          { id: 'assay-harness:scenario-set-hash-v2', version: '1' },
+        ],
+        scorerFingerprints: [
+          { id: 'assay-harness:programmatic-rubric', version: '1' },
+        ],
+        hashedFields: ['dataset.name', 'scenario.runnerVisibleInput'],
+        excludedPrivateFields: ['privateAnswerKey', 'mechanismAliases'],
+      },
+    })
+
+    expect(contract.scenarioSetHashMetadata.hashSchemaVersion).toBe('v2')
+    expect(contract.scenarioSetHashMetadata.domain).toBe('adtech')
+    expect(contract.scenarioSetHashMetadata.plugin?.id).toBe('agentsia.assay-adtech')
+    expect(contract.scenarioSetHashMetadata.excludedPrivateFields).toContain(
+      'privateAnswerKey',
+    )
+  })
 })
 
 describe('sanitised-scenario v1 — mirrored Modelsmith fixtures', () => {
@@ -255,6 +294,19 @@ describe('strict validation — missing and mistyped required fields', () => {
     }
     expect(() => validateAssayReleaseContractV2(broken)).toThrow(
       /expected literal/,
+    )
+  })
+
+  it('fails closed on an unknown scenario-set hash schema version in contract metadata', () => {
+    const broken = {
+      ...(assayReleaseMinimum as Record<string, unknown>),
+      scenarioSetHashMetadata: {
+        ...((assayReleaseMinimum as Record<string, unknown>).scenarioSetHashMetadata as Record<string, unknown>),
+        hashSchemaVersion: 'v999',
+      },
+    }
+    expect(() => validateAssayReleaseContractV2(broken)).toThrow(
+      /unknown scenario-set hash schema version/,
     )
   })
 

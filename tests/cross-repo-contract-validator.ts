@@ -248,11 +248,43 @@ const ASSAY_RELEASE_CONTRACT_KEYS = [
 ] as const
 
 const SCENARIO_SET_HASH_METADATA_KEYS = [
+  'hashSchemaVersion',
   'scenarioSetHash',
   'shortHash',
   'scenarioCount',
   'heldOutOnly',
   'governanceNote',
+  'dataset',
+  'domain',
+  'plugin',
+  'axes',
+  'rubricDescriptors',
+  'scoringDescriptors',
+  'multiTurn',
+  'implementationFingerprints',
+  'scorerFingerprints',
+  'hashedFields',
+  'excludedPrivateFields',
+] as const
+
+const SCENARIO_SET_HASH_SCHEMA_VERSIONS = ['v1', 'v2'] as const
+const SCENARIO_SET_HASH_DATASET_KEYS = ['name', 'version'] as const
+const SCENARIO_SET_PLUGIN_KEYS = ['id', 'version', 'uri'] as const
+const SCENARIO_SET_FINGERPRINT_KEYS = ['id', 'version', 'digest', 'uri'] as const
+const SCENARIO_SET_MULTITURN_KEYS = [
+  'scenarioCount',
+  'singleTurnScenarioCount',
+  'multiTurnScenarioCount',
+  'maxRunnerVisibleTurns',
+  'scenarios',
+] as const
+const SCENARIO_MULTITURN_SHAPE_KEYS = [
+  'id',
+  'multiTurn',
+  'runnerVisibleTurnCount',
+  'seedHistoryTurnCount',
+  'userTurnCount',
+  'persistenceCriteriaCount',
 ] as const
 
 const PROVENANCE_KEYS = [
@@ -293,11 +325,36 @@ export interface AssayReleaseContractV2 {
   generatedAt: string
   scenarioSetHash: string
   scenarioSetHashMetadata: {
+    hashSchemaVersion?: 'v1' | 'v2'
     scenarioSetHash: string
     shortHash?: string
     scenarioCount?: number
     heldOutOnly?: boolean
     governanceNote?: string
+    dataset?: { name: string; version: string }
+    domain?: string
+    plugin?: { id: string; version?: string; uri?: string }
+    axes?: string[]
+    rubricDescriptors?: string[]
+    scoringDescriptors?: string[]
+    multiTurn?: {
+      scenarioCount: number
+      singleTurnScenarioCount: number
+      multiTurnScenarioCount: number
+      maxRunnerVisibleTurns: number
+      scenarios: Array<{
+        id: string
+        multiTurn: boolean
+        runnerVisibleTurnCount: number
+        seedHistoryTurnCount: number
+        userTurnCount: number
+        persistenceCriteriaCount: number
+      }>
+    }
+    implementationFingerprints?: Array<{ id: string; version?: string; digest?: string; uri?: string }>
+    scorerFingerprints?: Array<{ id: string; version?: string; digest?: string; uri?: string }>
+    hashedFields?: string[]
+    excludedPrivateFields?: string[]
   }
   publicBundleHash: string
   provenance: {
@@ -346,6 +403,165 @@ function validateClaimGate(value: unknown, path: string): ClaimGateV2 {
   return gate
 }
 
+function validateScenarioSetPluginIdentity(
+  value: unknown,
+  path: string,
+): { id: string; version?: string; uri?: string } {
+  const obj = requireObject(value, path)
+  rejectUnexpectedKeys(obj, SCENARIO_SET_PLUGIN_KEYS, path)
+  const out: { id: string; version?: string; uri?: string } = {
+    id: requireString(obj.id, `${path}.id`),
+  }
+  if (obj.version !== undefined) out.version = requireString(obj.version, `${path}.version`)
+  if (obj.uri !== undefined) out.uri = requireString(obj.uri, `${path}.uri`)
+  return out
+}
+
+function validateScenarioSetFingerprint(
+  value: unknown,
+  path: string,
+): { id: string; version?: string; digest?: string; uri?: string } {
+  const obj = requireObject(value, path)
+  rejectUnexpectedKeys(obj, SCENARIO_SET_FINGERPRINT_KEYS, path)
+  const out: { id: string; version?: string; digest?: string; uri?: string } = {
+    id: requireString(obj.id, `${path}.id`),
+  }
+  if (obj.version !== undefined) out.version = requireString(obj.version, `${path}.version`)
+  if (obj.digest !== undefined) out.digest = requireString(obj.digest, `${path}.digest`)
+  if (obj.uri !== undefined) out.uri = requireString(obj.uri, `${path}.uri`)
+  return out
+}
+
+function validateScenarioSetFingerprints(
+  value: unknown,
+  path: string,
+): Array<{ id: string; version?: string; digest?: string; uri?: string }> {
+  if (!Array.isArray(value)) {
+    fail(path, `expected an array, got ${value === null ? 'null' : typeof value}`)
+  }
+  return value.map((item, index) =>
+    validateScenarioSetFingerprint(item, `${path}[${index}]`),
+  )
+}
+
+function validateScenarioMultiTurnShape(
+  value: unknown,
+  path: string,
+): {
+  id: string
+  multiTurn: boolean
+  runnerVisibleTurnCount: number
+  seedHistoryTurnCount: number
+  userTurnCount: number
+  persistenceCriteriaCount: number
+} {
+  const obj = requireObject(value, path)
+  rejectUnexpectedKeys(obj, SCENARIO_MULTITURN_SHAPE_KEYS, path)
+  return {
+    id: requireString(obj.id, `${path}.id`),
+    multiTurn: requireBoolean(obj.multiTurn, `${path}.multiTurn`),
+    runnerVisibleTurnCount: requireNonNegativeInt(
+      obj.runnerVisibleTurnCount,
+      `${path}.runnerVisibleTurnCount`,
+    ),
+    seedHistoryTurnCount: requireNonNegativeInt(
+      obj.seedHistoryTurnCount,
+      `${path}.seedHistoryTurnCount`,
+    ),
+    userTurnCount: requireNonNegativeInt(obj.userTurnCount, `${path}.userTurnCount`),
+    persistenceCriteriaCount: requireNonNegativeInt(
+      obj.persistenceCriteriaCount,
+      `${path}.persistenceCriteriaCount`,
+    ),
+  }
+}
+
+function validateScenarioSetMultiTurn(
+  value: unknown,
+  path: string,
+): AssayReleaseContractV2['scenarioSetHashMetadata']['multiTurn'] {
+  const obj = requireObject(value, path)
+  rejectUnexpectedKeys(obj, SCENARIO_SET_MULTITURN_KEYS, path)
+  if (!Array.isArray(obj.scenarios)) {
+    fail(`${path}.scenarios`, `expected an array, got ${obj.scenarios === null ? 'null' : typeof obj.scenarios}`)
+  }
+  return {
+    scenarioCount: requireNonNegativeInt(obj.scenarioCount, `${path}.scenarioCount`),
+    singleTurnScenarioCount: requireNonNegativeInt(
+      obj.singleTurnScenarioCount,
+      `${path}.singleTurnScenarioCount`,
+    ),
+    multiTurnScenarioCount: requireNonNegativeInt(
+      obj.multiTurnScenarioCount,
+      `${path}.multiTurnScenarioCount`,
+    ),
+    maxRunnerVisibleTurns: requireNonNegativeInt(
+      obj.maxRunnerVisibleTurns,
+      `${path}.maxRunnerVisibleTurns`,
+    ),
+    scenarios: obj.scenarios.map((item, index) =>
+      validateScenarioMultiTurnShape(item, `${path}.scenarios[${index}]`),
+    ),
+  }
+}
+
+function validateScenarioSetHashMetadataV2(
+  metaObj: Record<string, unknown>,
+  metadata: AssayReleaseContractV2['scenarioSetHashMetadata'],
+  path: string,
+): void {
+  const datasetObj = requireObject(
+    metaObj.dataset,
+    `${path}.scenarioSetHashMetadata.dataset`,
+  )
+  rejectUnexpectedKeys(
+    datasetObj,
+    SCENARIO_SET_HASH_DATASET_KEYS,
+    `${path}.scenarioSetHashMetadata.dataset`,
+  )
+  metadata.dataset = {
+    name: requireString(datasetObj.name, `${path}.scenarioSetHashMetadata.dataset.name`),
+    version: requireString(
+      datasetObj.version,
+      `${path}.scenarioSetHashMetadata.dataset.version`,
+    ),
+  }
+  metadata.domain = requireString(metaObj.domain, `${path}.scenarioSetHashMetadata.domain`)
+  metadata.plugin = validateScenarioSetPluginIdentity(
+    metaObj.plugin,
+    `${path}.scenarioSetHashMetadata.plugin`,
+  )
+  metadata.axes = requireStringArray(metaObj.axes, `${path}.scenarioSetHashMetadata.axes`)
+  metadata.rubricDescriptors = requireStringArray(
+    metaObj.rubricDescriptors,
+    `${path}.scenarioSetHashMetadata.rubricDescriptors`,
+  )
+  metadata.scoringDescriptors = requireStringArray(
+    metaObj.scoringDescriptors,
+    `${path}.scenarioSetHashMetadata.scoringDescriptors`,
+  )
+  metadata.multiTurn = validateScenarioSetMultiTurn(
+    metaObj.multiTurn,
+    `${path}.scenarioSetHashMetadata.multiTurn`,
+  )
+  metadata.implementationFingerprints = validateScenarioSetFingerprints(
+    metaObj.implementationFingerprints,
+    `${path}.scenarioSetHashMetadata.implementationFingerprints`,
+  )
+  metadata.scorerFingerprints = validateScenarioSetFingerprints(
+    metaObj.scorerFingerprints,
+    `${path}.scenarioSetHashMetadata.scorerFingerprints`,
+  )
+  metadata.hashedFields = requireStringArray(
+    metaObj.hashedFields,
+    `${path}.scenarioSetHashMetadata.hashedFields`,
+  )
+  metadata.excludedPrivateFields = requireStringArray(
+    metaObj.excludedPrivateFields,
+    `${path}.scenarioSetHashMetadata.excludedPrivateFields`,
+  )
+}
+
 /**
  * Strict validator for an `assay-release-contract` v2 document. Rejects any
  * unexpected top-level (and nested-object) key. Does NOT enforce the claim
@@ -386,6 +602,19 @@ export function validateAssayReleaseContractV2(
       1,
     ),
   }
+  if (metaObj.hashSchemaVersion !== undefined) {
+    const hashSchemaVersion = requireString(
+      metaObj.hashSchemaVersion,
+      `${path}.scenarioSetHashMetadata.hashSchemaVersion`,
+    )
+    if (!SCENARIO_SET_HASH_SCHEMA_VERSIONS.includes(hashSchemaVersion as 'v1' | 'v2')) {
+      fail(
+        `${path}.scenarioSetHashMetadata.hashSchemaVersion`,
+        `unknown scenario-set hash schema version ${JSON.stringify(hashSchemaVersion)}`,
+      )
+    }
+    metadata.hashSchemaVersion = hashSchemaVersion as 'v1' | 'v2'
+  }
   if (metaObj.shortHash !== undefined) {
     metadata.shortHash = requireString(
       metaObj.shortHash,
@@ -409,6 +638,9 @@ export function validateAssayReleaseContractV2(
       metaObj.governanceNote,
       `${path}.scenarioSetHashMetadata.governanceNote`,
     )
+  }
+  if (metadata.hashSchemaVersion === 'v2') {
+    validateScenarioSetHashMetadataV2(metaObj, metadata, path)
   }
 
   const provObj = requireObject(obj.provenance, `${path}.provenance`)

@@ -1,5 +1,9 @@
 import type { Dataset, RunRecord } from './types.js'
-import { computeScenarioSetHash } from './serialiser.js'
+import {
+  SCENARIO_SET_HASH_SCHEMA_V1,
+  SCENARIO_SET_HASH_SCHEMA_V2,
+  computeScenarioSetHash,
+} from './serialiser.js'
 
 export interface ValidationResult {
   valid: boolean
@@ -158,6 +162,57 @@ function requireArray(obj: Record<string, unknown>, key: string, path: string, e
   return true
 }
 
+function requireStringArray(
+  obj: Record<string, unknown>,
+  key: string,
+  path: string,
+  errors: string[],
+): boolean {
+  if (!Array.isArray(obj[key])) {
+    errors.push(`${path}.${key} must be an array`)
+    return false
+  }
+  let ok = true
+  for (const value of obj[key] as unknown[]) {
+    if (typeof value !== 'string') {
+      errors.push(`${path}.${key} must contain only strings`)
+      ok = false
+      break
+    }
+  }
+  return ok
+}
+
+function requireObject(
+  obj: Record<string, unknown>,
+  key: string,
+  path: string,
+  errors: string[],
+): Record<string, unknown> | null {
+  const value = obj[key]
+  if (!isRecord(value)) {
+    errors.push(`${path}.${key} must be an object`)
+    return null
+  }
+  return value
+}
+
+function validateKnownHashSchemaVersion(
+  version: unknown,
+  path: string,
+  errors: string[],
+): version is 'v1' | 'v2' {
+  if (typeof version !== 'string' || version.length === 0) {
+    errors.push(`${path} must be a non-empty string`)
+    return false
+  }
+  if (version !== SCENARIO_SET_HASH_SCHEMA_V1 && version !== SCENARIO_SET_HASH_SCHEMA_V2) {
+    errors.push(`${path} has unknown scenario-set hash schema version "${version}"`)
+    return false
+  }
+  return true
+}
+
 function validateModelResponse(v: unknown, path: string, errors: string[]): boolean {
   if (!isRecord(v)) { errors.push(`${path} must be an object`); return false }
   let ok = true
@@ -224,6 +279,203 @@ function validateModelAggregate(v: unknown, path: string, errors: string[]): boo
   return ok
 }
 
+function validateFingerprint(v: unknown, path: string, errors: string[]): boolean {
+  if (!isRecord(v)) { errors.push(`${path} must be an object`); return false }
+  let ok = true
+  ok = requireString(v, 'id', path, errors) && ok
+  if (v['version'] !== undefined && typeof v['version'] !== 'string') {
+    errors.push(`${path}.version must be a string`)
+    ok = false
+  }
+  if (v['digest'] !== undefined && typeof v['digest'] !== 'string') {
+    errors.push(`${path}.digest must be a string`)
+    ok = false
+  }
+  if (v['uri'] !== undefined && typeof v['uri'] !== 'string') {
+    errors.push(`${path}.uri must be a string`)
+    ok = false
+  }
+  return ok
+}
+
+function validatePluginIdentity(v: unknown, path: string, errors: string[]): boolean {
+  if (!isRecord(v)) { errors.push(`${path} must be an object`); return false }
+  let ok = true
+  ok = requireString(v, 'id', path, errors) && ok
+  if (v['version'] !== undefined && typeof v['version'] !== 'string') {
+    errors.push(`${path}.version must be a string`)
+    ok = false
+  }
+  if (v['uri'] !== undefined && typeof v['uri'] !== 'string') {
+    errors.push(`${path}.uri must be a string`)
+    ok = false
+  }
+  return ok
+}
+
+function validateMultiTurnShape(v: unknown, path: string, errors: string[]): boolean {
+  if (!isRecord(v)) { errors.push(`${path} must be an object`); return false }
+  let ok = true
+  ok = requireString(v, 'id', path, errors) && ok
+  if (typeof v['multiTurn'] !== 'boolean') {
+    errors.push(`${path}.multiTurn must be a boolean`)
+    ok = false
+  }
+  for (const key of [
+    'runnerVisibleTurnCount',
+    'seedHistoryTurnCount',
+    'userTurnCount',
+    'persistenceCriteriaCount',
+  ]) {
+    if (typeof v[key] !== 'number' || !Number.isInteger(v[key]) || (v[key] as number) < 0) {
+      errors.push(`${path}.${key} must be a non-negative integer`)
+      ok = false
+    }
+  }
+  return ok
+}
+
+function validateMultiTurnSummary(v: unknown, path: string, errors: string[]): boolean {
+  if (!isRecord(v)) { errors.push(`${path} must be an object`); return false }
+  let ok = true
+  for (const key of [
+    'scenarioCount',
+    'singleTurnScenarioCount',
+    'multiTurnScenarioCount',
+    'maxRunnerVisibleTurns',
+  ]) {
+    if (typeof v[key] !== 'number' || !Number.isInteger(v[key]) || (v[key] as number) < 0) {
+      errors.push(`${path}.${key} must be a non-negative integer`)
+      ok = false
+    }
+  }
+  if (!Array.isArray(v['scenarios'])) {
+    errors.push(`${path}.scenarios must be an array`)
+    ok = false
+  } else {
+    ;(v['scenarios'] as unknown[]).forEach((shape, i) => {
+      ok = validateMultiTurnShape(shape, `${path}.scenarios[${i}]`, errors) && ok
+    })
+  }
+  return ok
+}
+
+function validateScenarioSetHashMetadata(
+  value: Record<string, unknown>,
+  errors: string[],
+): void {
+  const metadata = value['scenarioSetHashMetadata']
+  const topLevelSchema = value['scenarioSetHashSchemaVersion']
+
+  if (topLevelSchema !== undefined) {
+    validateKnownHashSchemaVersion(
+      topLevelSchema,
+      'RunRecord.scenarioSetHashSchemaVersion',
+      errors,
+    )
+  }
+
+  if (metadata === undefined) {
+    if (topLevelSchema === SCENARIO_SET_HASH_SCHEMA_V2) {
+      errors.push(
+        'RunRecord.scenarioSetHashMetadata is required when ' +
+          'RunRecord.scenarioSetHashSchemaVersion is v2',
+      )
+    }
+    return
+  }
+
+  if (!isRecord(metadata)) {
+    errors.push('RunRecord.scenarioSetHashMetadata must be an object')
+    return
+  }
+
+  const metadataSchema = metadata['hashSchemaVersion'] ?? SCENARIO_SET_HASH_SCHEMA_V1
+  if (!validateKnownHashSchemaVersion(
+    metadataSchema,
+    'RunRecord.scenarioSetHashMetadata.hashSchemaVersion',
+    errors,
+  )) {
+    return
+  }
+
+  if (topLevelSchema !== undefined && topLevelSchema !== metadataSchema) {
+    errors.push(
+      `RunRecord.scenarioSetHashSchemaVersion "${String(topLevelSchema)}" must match ` +
+        `RunRecord.scenarioSetHashMetadata.hashSchemaVersion "${String(metadataSchema)}"`,
+    )
+  }
+
+  if (metadataSchema === SCENARIO_SET_HASH_SCHEMA_V1) {
+    requireString(metadata, 'scenarioSetHash', 'RunRecord.scenarioSetHashMetadata', errors)
+    return
+  }
+
+  validateScenarioSetHashMetadataV2(metadata, value, errors)
+}
+
+function validateScenarioSetHashMetadataV2(
+  metadata: Record<string, unknown>,
+  record: Record<string, unknown>,
+  errors: string[],
+): void {
+  requireString(metadata, 'scenarioSetHash', 'RunRecord.scenarioSetHashMetadata', errors)
+  if (record['scenarioSetHash'] === undefined) {
+    errors.push('RunRecord.scenarioSetHash is required when scenarioSetHashMetadata is v2')
+  } else if (metadata['scenarioSetHash'] !== record['scenarioSetHash']) {
+    errors.push(
+      'RunRecord.scenarioSetHashMetadata.scenarioSetHash must match RunRecord.scenarioSetHash',
+    )
+  }
+  requireString(metadata, 'shortHash', 'RunRecord.scenarioSetHashMetadata', errors)
+  if (
+    typeof metadata['scenarioSetHash'] === 'string' &&
+    typeof metadata['shortHash'] === 'string' &&
+    metadata['shortHash'] !== metadata['scenarioSetHash'].slice(0, 12)
+  ) {
+    errors.push('RunRecord.scenarioSetHashMetadata.shortHash must match the hash prefix')
+  }
+
+  const dataset = requireObject(metadata, 'dataset', 'RunRecord.scenarioSetHashMetadata', errors)
+  if (dataset) {
+    requireString(dataset, 'name', 'RunRecord.scenarioSetHashMetadata.dataset', errors)
+    requireString(dataset, 'version', 'RunRecord.scenarioSetHashMetadata.dataset', errors)
+  }
+  requireString(metadata, 'domain', 'RunRecord.scenarioSetHashMetadata', errors)
+  validatePluginIdentity(
+    metadata['plugin'],
+    'RunRecord.scenarioSetHashMetadata.plugin',
+    errors,
+  )
+  if (typeof metadata['scenarioCount'] !== 'number' || !Number.isInteger(metadata['scenarioCount']) || metadata['scenarioCount'] < 0) {
+    errors.push('RunRecord.scenarioSetHashMetadata.scenarioCount must be a non-negative integer')
+  }
+  requireStringArray(metadata, 'axes', 'RunRecord.scenarioSetHashMetadata', errors)
+  requireStringArray(metadata, 'rubricDescriptors', 'RunRecord.scenarioSetHashMetadata', errors)
+  requireStringArray(metadata, 'scoringDescriptors', 'RunRecord.scenarioSetHashMetadata', errors)
+  validateMultiTurnSummary(
+    metadata['multiTurn'],
+    'RunRecord.scenarioSetHashMetadata.multiTurn',
+    errors,
+  )
+
+  for (const key of ['implementationFingerprints', 'scorerFingerprints']) {
+    if (!Array.isArray(metadata[key])) {
+      errors.push(`RunRecord.scenarioSetHashMetadata.${key} must be an array`)
+    } else {
+      ;(metadata[key] as unknown[]).forEach((fingerprint, i) => {
+        validateFingerprint(
+          fingerprint,
+          `RunRecord.scenarioSetHashMetadata.${key}[${i}]`,
+          errors,
+        )
+      })
+    }
+  }
+  requireStringArray(metadata, 'hashedFields', 'RunRecord.scenarioSetHashMetadata', errors)
+  requireStringArray(metadata, 'excludedPrivateFields', 'RunRecord.scenarioSetHashMetadata', errors)
+}
+
 export function validateRunRecord(value: unknown): ValidationResult {
   const errors: string[] = []
 
@@ -247,6 +499,7 @@ export function validateRunRecord(value: unknown): ValidationResult {
   if (value['scenarioSetHash'] !== undefined) {
     requireString(value, 'scenarioSetHash', 'RunRecord', errors)
   }
+  validateScenarioSetHashMetadata(value, errors)
 
   if (!Array.isArray(value['runners'])) {
     errors.push('RunRecord.runners must be an array')
