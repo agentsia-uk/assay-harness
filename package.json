@@ -1,7 +1,7 @@
 {
   "name": "assay-harness",
-  "version": "0.4.0",
-  "description": "Open Agentsia Labs evaluation harness for Assay benchmark runners, rubric scoring, and RunRecord output.",
+  "version": "0.5.0",
+  "description": "Open Agentsia Labs benchmark harness for model runners, reproducible rubric scoring, proof bundles, and RunRecord output.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,8 +13,19 @@
   "files": [
     "dist",
     "docs/assets",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
+  ],
+  "keywords": [
+    "llm-evaluation",
+    "benchmark",
+    "eval-harness",
+    "adtech",
+    "frontier-ai",
+    "modelsmith",
+    "runrecord",
+    "reproducibility"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -1,8 +1,13 @@
 # assay-harness
 
-Open evaluation harness for the [Agentsia Labs](https://agentsia.uk/labs) benchmark series.
+Open evaluation harness for the [Agentsia Labs](https://agentsia.uk/labs)
+benchmark series.
 
-`assay-harness` is the public runner and scoring package used around Agentsia Labs benchmark releases. It loads harness-native scenario datasets, sends prompts to provider or local model runners, evaluates outputs against published rubrics, and writes versioned `RunRecord` JSON for audit and aggregation.
+`assay-harness` is the public runner, scoring, and proof package used around
+Agentsia Labs benchmark releases. It loads harness-native scenario datasets,
+sends prompts to provider or local model runners, evaluates outputs against
+published rubrics, writes versioned `RunRecord` JSON, and emits the public
+diagnostics and proof metadata needed to keep benchmark claims reproducible.
 
 The scoring mechanism is public and reproducible. The executable scorer enforces the published scoring rules rather than leaving them as prose: it caps keyword-bingo so a response cannot win on vocabulary alone, and it matches negation-aware so "this is **not** invalid traffic" is not credited as if it had flagged invalid traffic. The mechanism is a scoring *rule*, not an answer key. See [Reproducibility](#reproducibility) for the golden self-test that proves a headline number regenerates, and [`docs/public-held-out-boundary.md`](docs/public-held-out-boundary.md) for exactly what is released versus held out.
 
@@ -12,13 +17,50 @@ The first live benchmark is **Assay-Adtech v1**. The governed corpus size, the p
 
 ## Status
 
-**v0.4.0, 2026-05.** Anthropic, OpenAI, Google Gemini without grounding, Hugging Face Inference, local vLLM, and deterministic stub runners are implemented. The public TypeScript types, CLI shape, runner interface, release-contract validator, and `RunRecord` output format are stable for the Assay-Adtech v1 release cycle.
+**Harness v0.5.0, 2026-06.** The public package now includes first-class
+multi-turn execution, schema-v2 scenario-set hash metadata, fail-closed frontier
+quorum verification, deterministic proof-bundle manifests, paired-bootstrap
+compare intervals, public methodology diagnostics, and scorer conformance
+fingerprints. Anthropic, OpenAI, Google Gemini without grounding, Hugging Face
+Inference, local vLLM, and deterministic stub runners are implemented. The
+public TypeScript types, CLI shape, runner interface, release-contract
+validator, and `RunRecord` output format remain stable for the Assay-Adtech v1
+release cycle.
 
-The GitHub source archive intentionally contains only the harness source and tiny sample scenarios. Assay-Adtech benchmark artifacts are attached to the release as explicit assets:
+**Assay-Adtech artifact bundle v0.4.0.** The GitHub source archive intentionally
+contains only the harness source and tiny sample scenarios. The Assay-Adtech v1
+public benchmark artifacts remain attached to the original artifact release as
+explicit assets:
 
 - [Release contract](https://github.com/agentsia-uk/assay-harness/releases/download/v0.4.0/assay-adtech-v1.8.0-rc.4-release-contract.json)
 - [Public harness export](https://github.com/agentsia-uk/assay-harness/releases/download/v0.4.0/assay-adtech-v1.8.0-rc.4-public-harness-export.json)
 - [Asset checksums](https://github.com/agentsia-uk/assay-harness/releases/download/v0.4.0/assay-adtech-v1.8.0-rc.4-assets.sha256)
+
+The package release and benchmark artifact release are deliberately separated:
+v0.5.0 upgrades the reusable harness surface, while the v0.4.0 artifact bundle
+continues to pin the public Assay-Adtech v1 export and release contract.
+
+## Public Surface
+
+- Run single-turn and multi-turn scenario datasets through provider or local
+  runners.
+- Score with public programmatic rubrics, the anti-bingo mechanism scorer, and
+  the persistence grader used by multi-turn scenarios.
+- Bind results to scenario-set hashes, including additive schema-v2 metadata
+  that covers runner-visible input, axes, rubric descriptors, multi-turn shape,
+  and public-safe scorer fingerprints.
+- Compare two runs with paired bootstrap intervals on matched scenario/axis
+  scores.
+- Audit public scenario sets for outcome coverage, lane coverage, duplicates,
+  near-duplicates, training-prompt leakage, weak rubrics, item difficulty, and
+  release-specific plugin findings.
+- Build public proof-bundle manifests that expose checksums, runner metadata,
+  claim-gate state, aggregate results, and reproducibility self-test status
+  without leaking private prompts, answer keys, raw outputs, or per-scenario
+  scores.
+- Verify frontier proof metadata fail-closed against a release contract,
+  scenario-set hash, hash schema, provider quorum, and optional proof freshness
+  policy.
 
 ## Get Started
 
@@ -99,7 +141,8 @@ This repo provides:
 - The `assay` CLI for listing and running harness-native datasets.
 - Provider runners for Anthropic, OpenAI, Google Gemini, Hugging Face, local vLLM, and deterministic stubs.
 - Core public types for `Scenario`, `Runner`, `ModelResponse`, `Score`, `ModelAggregate`, and `RunRecord`.
-- Programmatic rubric scoring, aggregate computation, serialization, and strict Modelsmith release-contract validators.
+- Programmatic rubric scoring, aggregate computation, paired comparison, serialization, proof-bundle generation, methodology diagnostics, frontier proof verification, and strict Modelsmith release-contract validators.
+- Multi-turn scenario execution plus the public persistence grader advertised by Modelsmith release contracts.
 - Tiny examples that show the dataset shape without embedding benchmark holdout content in the source archive.
 
 This repo does not contain:
@@ -152,6 +195,19 @@ results, and reproducibility self-test status. It does not copy private answer
 keys, pass/fail criteria, raw outputs, or per-scenario scores. See
 [`docs/proof-bundle-format.md`](docs/proof-bundle-format.md) for the full
 format.
+
+`assay frontier verify` checks whether a proof bundle or frontier metadata can
+support a public frontier claim. It fails closed when the release contract claim
+gate is blocked or malformed, the scenario-set hash or hash schema does not
+match, the required provider quorum is unmet, or the proof is stale under the
+caller-supplied freshness policy:
+
+```bash
+pnpm assay frontier verify artifacts/frontier-proof.json \
+  --contract artifacts/assay-adtech-release-contract.json \
+  --provider claude --provider gpt --provider gemini \
+  --quorum 2 --max-proof-age-days 30
+```
 
 ## Frontier Baseline Snapshot
 
@@ -213,7 +269,18 @@ Some scenarios are multi-turn: they submit a sequence of adversarial user turns 
 
 ## Statistical Claim Gates
 
-`aggregate()` can attach deterministic bootstrap confidence intervals to per-axis aggregates when callers provide a confidence configuration. `comparePairedScores()` reports paired bootstrap intervals for model A versus model B on the same scenario set. Use paired intervals when deciding whether a candidate model has genuinely improved over a baseline. Small deltas without interval support should be treated as descriptive, not as a promotion claim.
+`aggregate()` can attach deterministic bootstrap confidence intervals to
+per-axis aggregates when callers provide a confidence configuration. The
+`assay compare` CLI and `comparePairedScores()` report paired bootstrap
+intervals for model A versus model B on the same scenario set. Use paired
+intervals when deciding whether a candidate model has genuinely improved over a
+baseline. Small deltas without interval support should be treated as
+descriptive, not as a promotion claim.
+
+```bash
+pnpm assay compare runs/baseline.json runs/candidate.json
+pnpm assay compare runs/baseline.json runs/candidate.json --json
+```
 
 ## Scenario Diagnostics
 
