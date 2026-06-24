@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.1 - 2026-06-24
+
+Docs and storefront patch for the expanded frontier snapshot.
+
+- Updated the Assay-Adtech SVG from three bars to the seven-row frontier
+  snapshot shown in the latest Modelsmith protocol analysis.
+- Marked Fable 5 as provisional because its source row is a single
+  grandfathered protocol-analysis run.
+- Trimmed README wording so `assay-harness` remains presented as a
+  corpus-agnostic runner, scorer, and proof verifier while benchmark-specific
+  leaderboard claims stay tied to release contracts.
+
 ## v0.5.0 - 2026-06-24
 
 This is a minor harness release for the Modelsmith-grade public benchmarking

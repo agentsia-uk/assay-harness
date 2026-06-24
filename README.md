@@ -17,7 +17,7 @@ The first live benchmark is **Assay-Adtech v1**. The governed corpus size, the p
 
 ## Status
 
-**Harness v0.5.0, 2026-06.** The public package now includes first-class
+**Harness v0.5.1, 2026-06.** The public package now includes first-class
 multi-turn execution, schema-v2 scenario-set hash metadata, fail-closed frontier
 quorum verification, deterministic proof-bundle manifests, paired-bootstrap
 compare intervals, public methodology diagnostics, and scorer conformance
@@ -211,17 +211,26 @@ pnpm assay frontier verify artifacts/frontier-proof.json \
 
 ## Frontier Baseline Snapshot
 
-The SVG above is derived from the published, version-labelled Modelsmith **v1.0** production-baseline proof package for the governed 344-scenario corpus, hash `04e0063373df`. It summarizes no-tools frontier runs over that corpus. These are the only Assay-Adtech frontier numbers cleared for leaderboard reference today.
+The SVG above is a version-labelled Modelsmith Assay-Adtech frontier snapshot,
+rendered here as a storefront example of the harness proof surface. It is
+benchmark-owned release material, not part of the generic harness API.
 
-| Benchmark cluster | Claude Opus 4.7 | GPT 5.5 | Gemini 3.5 Flash |
-|---|---:|---:|---:|
-| Assay-Adtech | 41.6 | 40.4 | 38.1 |
+| Model | Provider | Composite |
+|---|---|---:|
+| Fable 5 | Anthropic | 44.2 |
+| Opus 4.7 | Anthropic | 41.6 |
+| GPT 5.5 | OpenAI | 40.4 |
+| Gemini 3.5 Flash | Google | 38.1 |
+| Gemini 3.1 Pro Preview | Google | 37.2 |
+| Opus 4.8 | Anthropic | 36.0 |
+| GPT 5.4 | OpenAI | 36.0 |
 
-Scores are composite percentages against a 100 percent ceiling. Each provider row is based on three production runs with 95 percent confidence intervals recorded in the proof package (Opus 4.7 36.3 to 46.8; GPT 5.5 35.2 to 45.6; Gemini 3.5 Flash 32.8 to 43.3). Use the release contract before quoting any leaderboard or performance claim.
-
-A number is always tied to the exact corpus hash it was measured on. The v1.0 baselines above stay published and version-labelled per the benchmark-versioning policy. The corpus has since rotated to **v1.1** (hash `0c3bafc0f150`) after a council grader-rebuild and factual-correction pass; the release contract's `claimGate` keeps leaderboard claims **blocked** on v1.1 until the runnable frontier models are re-run on that hash. No v1.1 number is published here.
-
-**Frontier lineup.** The frontier panel Modelsmith tracks for Assay-Adtech spans Claude (Opus 4.7, Opus 4.8, Fable 5), OpenAI (GPT 5.5, GPT 5.4), and Google Gemini (3.5 Flash, 3.1 Pro Preview). Only the three corpus-matched, quorum-satisfied v1.0 cells above carry published leaderboard scores. **Claude Fable 5** is part of the lineup but does not yet have a corpus-matched, leaderboard-eligible score: its only run to date is a single grandfathered pass on a superseded pre-fact-check corpus revision, so quoting that number against the published v1.0 or current v1.1 hash would violate the corpus-matching rule. A corpus-matched Fable 5 run on the current governed hash is the follow-up before a leaderboard cell is shown.
+Scores are composite percentages against a 100 percent ceiling. Fable 5 is
+marked provisional because the source row is a single grandfathered protocol
+analysis run. `assay-harness` stays corpus-agnostic: it runs datasets, records
+hashes, scores outputs, and verifies proof metadata. Benchmark owners decide
+which proof bundles are claim-eligible, so use the benchmark release contract
+before quoting a leaderboard or performance claim.
 
 ## Concepts
 
