@@ -2,17 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { compareRuns, formatCompareTable } from '../src/compare.js'
 import type { RunRecord } from '../src/types.js'
 
-function makeRun(id: string, scores: Array<{ scenarioId: string; value: number }>): RunRecord {
+function makeRun(
+  id: string,
+  scores: Array<{ scenarioId: string; value: number; axis?: string }>,
+  opts: { scenarioSetHash?: string, runners?: string[] } = {},
+): RunRecord {
+  const runners = opts.runners ?? [`stub:${id}`]
   return {
     id,
     dataset: { name: 'test', version: '0.1.0' },
-    runners: [`stub:${id}`],
+    scenarioSetHash: opts.scenarioSetHash ?? 'hash:matched',
+    runners,
     createdAt: new Date().toISOString(),
     responses: [],
     scores: scores.map((s) => ({
-      runnerId: `stub:${id}`,
+      runnerId: runners[0] ?? `stub:${id}`,
       scenarioId: s.scenarioId,
-      axis: 'quality',
+      axis: s.axis ?? 'quality',
       value: s.value,
     })),
     aggregates: [],
@@ -74,6 +80,136 @@ describe('compareRuns', () => {
     const result = compareRuns(run1, run2)
     expect(result.compositeDelta).toBeCloseTo(0.2)
   })
+
+  it('emits paired-bootstrap interval metadata for matched scenario sets', () => {
+    const run1 = makeRun('a', [
+      { scenarioId: 's1', value: 0.4 },
+      { scenarioId: 's2', value: 0.6 },
+      { scenarioId: 's3', value: 0.8 },
+    ])
+    const run2 = makeRun('b', [
+      { scenarioId: 's1', value: 0.5 },
+      { scenarioId: 's2', value: 0.9 },
+      { scenarioId: 's3', value: 0.7 },
+    ])
+
+    const result = compareRuns(run1, run2, {
+      iterations: 100,
+      confidenceLevel: 0.9,
+      seed: 13,
+    })
+
+    expect(result.interval).toMatchObject({
+      method: 'paired-bootstrap',
+      status: 'available',
+      promotionClaimSupported: true,
+      descriptiveOnly: false,
+      pairedScenarioCount: 3,
+      totalScenarioCount: 3,
+      warnings: [],
+      scenarioSetHash: {
+        run1: 'hash:matched',
+        run2: 'hash:matched',
+        status: 'match',
+      },
+    })
+    expect(result.interval.confidenceInterval).toMatchObject({
+      method: 'paired-bootstrap',
+      confidenceLevel: 0.9,
+      iterations: 100,
+      seed: 13,
+      n: 3,
+    })
+  })
+
+  it('withholds promotion intervals and warns when scenario-set hashes differ', () => {
+    const run1 = makeRun('a', [{ scenarioId: 's1', value: 0.4 }], {
+      scenarioSetHash: 'hash:one',
+    })
+    const run2 = makeRun('b', [{ scenarioId: 's1', value: 0.7 }], {
+      scenarioSetHash: 'hash:two',
+    })
+
+    const result = compareRuns(run1, run2)
+
+    expect(result.compositeDelta).toBeCloseTo(0.3)
+    expect(result.interval.status).toBe('unavailable')
+    expect(result.interval.confidenceInterval).toBeNull()
+    expect(result.interval.promotionClaimSupported).toBe(false)
+    expect(result.interval.descriptiveOnly).toBe(true)
+    expect(result.interval.scenarioSetHash.status).toBe('mismatch')
+    expect(result.interval.warnings.join('\n')).toContain('scenario-set hashes differ')
+  })
+
+  it('withholds promotion intervals and warns when paired scenarios are incomplete', () => {
+    const run1 = makeRun('a', [
+      { scenarioId: 's1', value: 0.4 },
+      { scenarioId: 's2', value: 0.6 },
+    ])
+    const run2 = makeRun('b', [{ scenarioId: 's1', value: 0.7 }])
+
+    const result = compareRuns(run1, run2)
+
+    expect(result.interval.status).toBe('unavailable')
+    expect(result.interval.missingFromRun2).toEqual(['s2'])
+    expect(result.interval.warnings.join('\n')).toContain('paired comparison incomplete')
+  })
+
+  it('withholds promotion intervals when paired scenario score keys differ', () => {
+    const run1 = makeRun('a', [
+      { scenarioId: 's1', axis: 'quality', value: 0.4 },
+      { scenarioId: 's1', axis: 'safety', value: 0.6 },
+    ])
+    const run2 = makeRun('b', [
+      { scenarioId: 's1', axis: 'quality', value: 0.7 },
+    ])
+
+    const result = compareRuns(run1, run2)
+
+    expect(result.interval.status).toBe('unavailable')
+    expect(result.interval.promotionClaimSupported).toBe(false)
+    expect(result.interval.missingScoreKeysFromRun2).toEqual([
+      's1/safety (run1=1, run2=0)',
+    ])
+    expect(result.interval.warnings.join('\n')).toContain(
+      'paired comparison score keys differ',
+    )
+  })
+
+  it('withholds promotion intervals for invalid bootstrap options', () => {
+    const run1 = makeRun('a', [
+      { scenarioId: 's1', value: 0.4 },
+      { scenarioId: 's2', value: 0.6 },
+    ])
+    const run2 = makeRun('b', [
+      { scenarioId: 's1', value: 0.7 },
+      { scenarioId: 's2', value: 0.9 },
+    ])
+
+    const result = compareRuns(run1, run2, {
+      iterations: 0,
+      confidenceLevel: 1,
+    })
+
+    expect(result.interval.status).toBe('unavailable')
+    expect(result.interval.confidenceInterval).toBeNull()
+    expect(result.interval.promotionClaimSupported).toBe(false)
+    expect(result.interval.warnings.join('\n')).toContain(
+      'invalid paired-bootstrap iterations 0',
+    )
+    expect(result.interval.warnings.join('\n')).toContain(
+      'invalid paired-bootstrap confidence level 1',
+    )
+  })
+
+  it('fails clearly for multi-runner RunRecords', () => {
+    const run1 = makeRun('a', [{ scenarioId: 's1', value: 0.4 }], {
+      runners: ['stub:a', 'stub:b'],
+    })
+    const run2 = makeRun('b', [{ scenarioId: 's1', value: 0.7 }])
+
+    expect(() => compareRuns(run1, run2)).toThrow(/contains multiple runners/)
+  })
 })
 
 describe('formatCompareTable', () => {
@@ -87,5 +223,18 @@ describe('formatCompareTable', () => {
     expect(table).toContain('delta')
     expect(table).toContain('sc-001')
     expect(table).toContain('+')
+  })
+
+  it('documents descriptive-only deltas when no interval is available', () => {
+    const run1 = makeRun('r1', [{ scenarioId: 'sc-001', value: 0.5 }], {
+      scenarioSetHash: 'hash:one',
+    })
+    const run2 = makeRun('r2', [{ scenarioId: 'sc-001', value: 0.75 }], {
+      scenarioSetHash: 'hash:two',
+    })
+    const table = formatCompareTable(compareRuns(run1, run2))
+
+    expect(table).toContain('non-interval deltas are descriptive, not promotion claims')
+    expect(table).toContain('warning: scenario-set hashes differ')
   })
 })
