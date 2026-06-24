@@ -1,0 +1,12 @@
+packages:
+  - "."
+
+engineStrict: true
+autoInstallPeers: true
+
+overrides:
+  "ws@>=8.0.0 <8.21.0": ">=8.21.0"
+
+allowBuilds:
+  esbuild: true
+  protobufjs: true
