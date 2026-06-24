@@ -73,6 +73,7 @@ describe('scenario-set hash schema v2', () => {
         'scenario.rubricDescriptor',
         'scenario.scoringDescriptor',
         'scenario.multiTurnShape',
+        'scenario.multiTurnRunnerVisibleInput',
         'implementationFingerprints',
         'scorerFingerprints',
       ]),
@@ -181,6 +182,69 @@ describe('scenario-set hash schema v2', () => {
       singleTurnScenarioCount: 0,
       maxRunnerVisibleTurns: 1,
     })
+  })
+
+  it('hashes top-level multi-turn seed history and user-turn text', () => {
+    const baseMultiTurn = {
+      ...scenario('multi'),
+      seedHistory: [
+        { role: 'user', content: 'The bidder is blocked on a US-only PMP deal.' },
+        { role: 'assistant', content: 'Check deal eligibility and geo filters.' },
+      ],
+      userTurns: ['Now diagnose why the bid is still rejected.'],
+      persistenceCriteria: ['The answer must preserve the original geo constraint.'],
+    } as Scenario
+    const changedTurn = {
+      ...baseMultiTurn,
+      userTurns: ['Now diagnose why the bid floor is still too high.'],
+    } as Scenario
+
+    const baseHash = computeScenarioSetHashV2(dataset([baseMultiTurn]), v2Options)
+      .scenarioSetHash
+    expect(computeScenarioSetHashV2(dataset([changedTurn]), v2Options).scenarioSetHash)
+      .not.toBe(baseHash)
+  })
+
+  it('hashes public mechanism matcher and anti-bingo token strings', () => {
+    const mechanismRubric = {
+      kind: 'mechanism' as const,
+      quantitative: [{ label: 'floor', matchers: ['floor increased by 20%', '20 percent'] }],
+      disambiguation: [{ label: 'auction', matchers: ['first-price auction'] }],
+      actions: [{ label: 'action', matchers: ['lower the pmp floor'] }],
+      bingoTokens: ['bid floor', 'pmp'],
+    }
+    const baseHash = computeScenarioSetHashV2(
+      dataset([scenario('mechanism', { rubric: mechanismRubric })]),
+      v2Options,
+    ).scenarioSetHash
+
+    expect(
+      computeScenarioSetHashV2(
+        dataset([
+          scenario('mechanism', {
+            rubric: {
+              ...mechanismRubric,
+              quantitative: [{ label: 'floor', matchers: ['floor increased by 30%', '30 percent'] }],
+            },
+          }),
+        ]),
+        v2Options,
+      ).scenarioSetHash,
+    ).not.toBe(baseHash)
+
+    expect(
+      computeScenarioSetHashV2(
+        dataset([
+          scenario('mechanism', {
+            rubric: {
+              ...mechanismRubric,
+              bingoTokens: ['auction', 'pmp'],
+            },
+          }),
+        ]),
+        v2Options,
+      ).scenarioSetHash,
+    ).not.toBe(baseHash)
   })
 
   it('fails closed when asked to compute an unknown hash schema version', () => {

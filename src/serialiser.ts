@@ -32,6 +32,7 @@ export const SCENARIO_SET_HASH_V2_HASHED_FIELDS = [
   'scenario.rubricDescriptor',
   'scenario.scoringDescriptor',
   'scenario.multiTurnShape',
+  'scenario.multiTurnRunnerVisibleInput',
   'implementationFingerprints',
   'scorerFingerprints',
 ] as const
@@ -222,6 +223,7 @@ function scenarioHashContributionV2(scenario: Scenario): {
   rubricDescriptor: { id: string, value: unknown }
   scoringDescriptor: { id: string, value: unknown }
   multiTurnShape: ScenarioMultiTurnShape
+  multiTurnRunnerVisibleInput: unknown
 } {
   const rubricDescriptor = publicRubricDescriptor(scenario.rubric)
   const scoringDescriptor = publicScoringDescriptor(scenario.rubric)
@@ -238,6 +240,7 @@ function scenarioHashContributionV2(scenario: Scenario): {
       value: scoringDescriptor,
     },
     multiTurnShape: multiTurnShape(scenario),
+    multiTurnRunnerVisibleInput: multiTurnRunnerVisibleInput(scenario),
   }
 }
 
@@ -255,7 +258,7 @@ function publicRubricDescriptor(rubric: Rubric): unknown {
       quantitative: rubric.quantitative.map(gateDescriptor),
       disambiguation: rubric.disambiguation.map(gateDescriptor),
       actions: rubric.actions.map(gateDescriptor),
-      bingoTokenCount: rubric.bingoTokens.length,
+      bingoTokens: [...rubric.bingoTokens].sort(),
     }
   }
   if (rubric.kind === 'llm-judge') {
@@ -291,32 +294,23 @@ function publicScoringDescriptor(rubric: Rubric): { id: string, kind: string } {
 function gateDescriptor(gate: { label: string, matchers: string[] }): unknown {
   return {
     label: gate.label,
-    matcherCount: gate.matchers.length,
+    matchers: [...gate.matchers].sort(),
   }
 }
 
+function multiTurnRunnerVisibleInput(scenario: Scenario): unknown {
+  const { seedHistory, userTurns, persistenceCriteria } = multiTurnParts(scenario)
+  return redactPrivateFields({
+    seedHistory: seedHistory ?? [],
+    userTurns: userTurns ?? [],
+    persistenceCriteria: persistenceCriteria ?? [],
+  })
+}
+
 function multiTurnShape(scenario: Scenario): ScenarioMultiTurnShape {
-  const scenarioRecord = scenario as unknown as Record<string, unknown>
+  const { seedHistory, userTurns, persistenceCriteria } = multiTurnParts(scenario)
   const inputMeta = isRecord(scenario.input.meta) ? scenario.input.meta : {}
   const meta = isRecord(scenario.meta) ? scenario.meta : {}
-  const seedHistory = firstArray(
-    scenarioRecord['seedHistory'],
-    scenarioRecord['conversationHistory'],
-    inputMeta['seedHistory'],
-    inputMeta['conversationHistory'],
-    meta['seedHistory'],
-    meta['conversationHistory'],
-  )
-  const userTurns = firstArray(
-    scenarioRecord['userTurns'],
-    inputMeta['userTurns'],
-    meta['userTurns'],
-  )
-  const persistenceCriteria = firstArray(
-    scenarioRecord['persistenceCriteria'],
-    inputMeta['persistenceCriteria'],
-    meta['persistenceCriteria'],
-  )
   const multiTurn =
     meta['multiTurn'] === true ||
     inputMeta['multiTurn'] === true ||
@@ -335,6 +329,36 @@ function multiTurnShape(scenario: Scenario): ScenarioMultiTurnShape {
     seedHistoryTurnCount: seedHistory?.length ?? 0,
     userTurnCount: userTurns?.length ?? 0,
     persistenceCriteriaCount: persistenceCriteria?.length ?? 0,
+  }
+}
+
+function multiTurnParts(scenario: Scenario): {
+  seedHistory?: unknown[]
+  userTurns?: unknown[]
+  persistenceCriteria?: unknown[]
+} {
+  const scenarioRecord = scenario as unknown as Record<string, unknown>
+  const inputMeta = isRecord(scenario.input.meta) ? scenario.input.meta : {}
+  const meta = isRecord(scenario.meta) ? scenario.meta : {}
+  return {
+    seedHistory: firstArray(
+      scenarioRecord['seedHistory'],
+      scenarioRecord['conversationHistory'],
+      inputMeta['seedHistory'],
+      inputMeta['conversationHistory'],
+      meta['seedHistory'],
+      meta['conversationHistory'],
+    ),
+    userTurns: firstArray(
+      scenarioRecord['userTurns'],
+      inputMeta['userTurns'],
+      meta['userTurns'],
+    ),
+    persistenceCriteria: firstArray(
+      scenarioRecord['persistenceCriteria'],
+      inputMeta['persistenceCriteria'],
+      meta['persistenceCriteria'],
+    ),
   }
 }
 
