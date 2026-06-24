@@ -22,10 +22,11 @@ The GitHub source archive intentionally contains only the harness source and tin
 
 ## Get Started
 
-1. Install Node 22 or later and pnpm.
+1. Install Node 22 or later and use the pnpm version pinned by Corepack.
 
    ```bash
    corepack enable
+   corepack install
    pnpm install
    ```
 
@@ -220,13 +221,14 @@ Some scenarios are multi-turn: they submit a sequence of adversarial user turns 
 
 ```bash
 pnpm install
+pnpm contracts:cross-repo
 pnpm typecheck
 pnpm test
 pnpm build
 pnpm audit:deadcode
 ```
 
-CI runs typecheck, tests, build, and dead-code audit for every PR.
+CI runs the cross-repo contract check, typecheck, tests, build, and dead-code audit for every PR on Node 22 with the pinned pnpm version.
 
 ### Dead-Code And Dependency Audit
 
