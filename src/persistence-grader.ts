@@ -38,11 +38,54 @@
  * (`src/runners/multi-turn.ts`) captures the turns and wires them in.
  */
 
-import { containsUnnegatedMatch, tokenPresent } from './matchers.js'
+import { containsUnnegatedMatch, NEGATION_WINDOW_CHARS, tokenPresent } from './matchers.js'
 
 /** Stable identifier advertised by the Modelsmith release contract's
  *  `harnessDependencyIds`. Bump the suffix on any breaking matcher change. */
 export const PERSISTENCE_GRADER_VERSION = 'persistence-grader-v1' as const
+export const PERSISTENCE_EVIDENCE_VALIDITY_PREDICATE_ID =
+  'persistence-grader-v1-evidence-validity' as const
+
+export const PERSISTENCE_CRITERION_KINDS = [
+  'fact-persistence',
+  'disposition-persistence',
+  'constraint-persistence',
+  'mechanism-persistence',
+  'evidence-update',
+] as const
+
+/**
+ * Public-safe deterministic grader fingerprint. This is a conformance contract
+ * for producer/consumer parity; it contains governed constants and predicate
+ * rules, not private answers or held-out phrase expansions.
+ */
+export const PERSISTENCE_GRADER_FINGERPRINT = {
+  id: PERSISTENCE_GRADER_VERSION,
+  version: PERSISTENCE_GRADER_VERSION,
+  governedConstants: {
+    negationWindowChars: NEGATION_WINDOW_CHARS,
+    emptyCriteriaScore: 0,
+    passVerdict: 'pass',
+  },
+  supportedCriterionKinds: PERSISTENCE_CRITERION_KINDS,
+  normalizationAssumptions: [
+    'phrase-matching-is-word-edge-aware',
+    'flip-and-violation-phrases-are-negation-aware',
+    'missing-target-turn-fails-closed',
+    'empty-target-turn-fails-closed',
+  ],
+  evidenceValidityPredicate: {
+    id: PERSISTENCE_EVIDENCE_VALIDITY_PREDICATE_ID,
+    rules: [
+      'grader-version-must-equal-persistence-grader-v1',
+      'scenario-set-hash-must-be-present-and-match-expected-hash-when-supplied',
+      'trace-reference-must-be-present',
+      'recorded-at-must-be-present',
+      'criteria-total-must-be-positive',
+      'criteria-passed-must-equal-criteria-total',
+    ],
+  },
+} as const
 
 /** A single captured turn from a multi-turn scenario run. */
 export interface TurnObservation {
@@ -80,6 +123,38 @@ export interface PersistenceScore {
   /** Originating turn, if the criterion supplied `establishedAtTurn`. */
   establishedAtTurn?: number
   /** Human-readable diagnostic — surfaces in test failures and harness logs. */
+  detail: string
+}
+
+export type PersistenceEvidenceValidityReason =
+  | 'valid'
+  | 'missing-evidence'
+  | 'missing-grader-version'
+  | 'unsupported-grader-version'
+  | 'missing-scenario-set-hash'
+  | 'scenario-set-hash-mismatch'
+  | 'missing-trace-reference'
+  | 'missing-recorded-at'
+  | 'criteria-total-not-positive'
+  | 'criteria-not-all-passed'
+
+export interface PersistenceEvidenceReference {
+  graderVersion: string
+  scenarioSetHash: string
+  traceRef: string
+  recordedAt: string
+  criteriaTotal: number
+  criteriaPassed: number
+}
+
+export interface PersistenceEvidenceValidityOptions {
+  expectedScenarioSetHash?: string
+  expectedGraderVersion?: string
+}
+
+export interface PersistenceEvidenceValidity {
+  valid: boolean
+  reason: PersistenceEvidenceValidityReason
   detail: string
 }
 
@@ -220,6 +295,123 @@ function firstMissingGroup(
     if (!group.some((p) => containsPhrase(text, p))) return group
   }
   return null
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function evidenceValidity(
+  valid: boolean,
+  reason: PersistenceEvidenceValidityReason,
+  detail: string,
+): PersistenceEvidenceValidity {
+  return { valid, reason, detail }
+}
+
+/**
+ * Public predicate for whether a producer-side `persistence-grader-v1` evidence
+ * reference is sufficient to clear the persistence-evidence portion of a claim.
+ *
+ * The predicate is deliberately shape-based and public-safe: it checks the
+ * grader version, corpus hash, trace reference, timestamp, and aggregate
+ * criterion counts. It does not require private Modelsmith prompts, answers,
+ * aliases, or raw traces to be imported into this package.
+ */
+export function evaluatePersistenceEvidenceValidity(
+  evidence: Partial<PersistenceEvidenceReference> | null | undefined,
+  options: PersistenceEvidenceValidityOptions = {},
+): PersistenceEvidenceValidity {
+  if (evidence === null || evidence === undefined || typeof evidence !== 'object') {
+    return evidenceValidity(
+      false,
+      'missing-evidence',
+      'No persistence evidence reference was supplied.',
+    )
+  }
+
+  const expectedGraderVersion =
+    options.expectedGraderVersion ?? PERSISTENCE_GRADER_VERSION
+  if (!hasText(evidence.graderVersion)) {
+    return evidenceValidity(
+      false,
+      'missing-grader-version',
+      'Persistence evidence must name the grader version that produced it.',
+    )
+  }
+  if (evidence.graderVersion !== expectedGraderVersion) {
+    return evidenceValidity(
+      false,
+      'unsupported-grader-version',
+      `Expected ${expectedGraderVersion}, got ${evidence.graderVersion}.`,
+    )
+  }
+
+  if (!hasText(evidence.scenarioSetHash)) {
+    return evidenceValidity(
+      false,
+      'missing-scenario-set-hash',
+      'Persistence evidence must name the scenario-set hash it was generated against.',
+    )
+  }
+  if (
+    hasText(options.expectedScenarioSetHash) &&
+    evidence.scenarioSetHash !== options.expectedScenarioSetHash
+  ) {
+    return evidenceValidity(
+      false,
+      'scenario-set-hash-mismatch',
+      `Evidence hash ${evidence.scenarioSetHash} does not match expected hash ${options.expectedScenarioSetHash}.`,
+    )
+  }
+
+  if (!hasText(evidence.traceRef)) {
+    return evidenceValidity(
+      false,
+      'missing-trace-reference',
+      'Persistence evidence must include a non-empty traceRef.',
+    )
+  }
+  if (!hasText(evidence.recordedAt)) {
+    return evidenceValidity(
+      false,
+      'missing-recorded-at',
+      'Persistence evidence must include the time it was recorded.',
+    )
+  }
+  if (
+    !Number.isInteger(evidence.criteriaTotal) ||
+    (evidence.criteriaTotal ?? 0) <= 0
+  ) {
+    return evidenceValidity(
+      false,
+      'criteria-total-not-positive',
+      'Persistence evidence must cover at least one criterion.',
+    )
+  }
+  if (
+    !Number.isInteger(evidence.criteriaPassed) ||
+    evidence.criteriaPassed !== evidence.criteriaTotal
+  ) {
+    return evidenceValidity(
+      false,
+      'criteria-not-all-passed',
+      `Persistence evidence must pass every checked criterion (${evidence.criteriaPassed ?? 'missing'}/${evidence.criteriaTotal}).`,
+    )
+  }
+
+  return evidenceValidity(
+    true,
+    'valid',
+    `Persistence evidence is trace-backed for ${evidence.scenarioSetHash} using ${evidence.graderVersion}.`,
+  )
+}
+
+export function isPersistenceEvidenceValid(
+  evidence: Partial<PersistenceEvidenceReference> | null | undefined,
+  options: PersistenceEvidenceValidityOptions = {},
+): boolean {
+  return evaluatePersistenceEvidenceValidity(evidence, options).valid
 }
 
 // ---------------------------------------------------------------------------
