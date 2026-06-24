@@ -225,12 +225,20 @@ program
   .argument('<run1>', 'path to first RunRecord JSON')
   .argument('<run2>', 'path to second RunRecord JSON')
   .option('--json', 'output result as JSON instead of a table')
-  .action(async (run1Path: string, run2Path: string, opts: { json?: boolean }) => {
+  .option('--ci-iterations <n>', 'paired-bootstrap iterations for confidence intervals (default 1000)', parseIntSafe, 1000)
+  .option('--ci-level <p>', 'confidence level for the interval, e.g. 0.95 (default)', parseFloat, 0.95)
+  .option('--ci-seed <n>', 'seed for the paired-bootstrap RNG so intervals are reproducible (default 1)', parseIntSafe, 1)
+  .action(async (run1Path: string, run2Path: string, opts: CompareCliOptions) => {
     const [run1, run2] = await Promise.all([
       readRunRecord(run1Path),
       readRunRecord(run2Path),
     ])
-    const result = compareRuns(run1, run2)
+    const result = compareRuns(run1, run2, {
+      iterations: opts.ciIterations,
+      confidenceLevel: opts.ciLevel,
+      seed: opts.ciSeed,
+    })
+    emitCompareWarnings(result.interval.warnings)
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2))
     } else {
@@ -396,6 +404,13 @@ interface ContractOptions {
   json?: boolean
 }
 
+interface CompareCliOptions {
+  json?: boolean
+  ciIterations: number
+  ciLevel: number
+  ciSeed: number
+}
+
 interface PublishOptions {
   to: string
   dataset?: string
@@ -457,6 +472,12 @@ function scenarioSetHashErrors(record: RunRecord, expected: string, label: strin
     ]
   }
   return []
+}
+
+function emitCompareWarnings(warnings: string[]): void {
+  for (const warning of warnings) {
+    process.stderr.write(`warning: ${warning}\n`)
+  }
 }
 
 function assertLeaderboardEligiblePublish(
