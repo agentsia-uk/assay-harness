@@ -34,6 +34,28 @@ export type { ScenarioComparison, CompareResult } from './compare.js'
 export { buildMarkdownReport, createGist } from './publish.js'
 export type { GistResult } from './publish.js'
 export {
+  buildProofBundleManifest,
+  buildProofBundleManifestFromFiles,
+  canonicalJson,
+  checksumObject,
+  formatProofBundleManifest,
+  validateProofBundleManifest,
+  writeProofBundleManifest,
+  PROOF_BUNDLE_SCHEMA_VERSION,
+  PROOF_HASH_SCHEMA,
+} from './proof.js'
+export type {
+  BuildProofBundleManifestFromFilesOptions,
+  BuildProofBundleManifestOptions,
+  ProofBundleManifest,
+  ProofBundleValidationResult,
+  ProofIndexEntry,
+  ProofSelfTestCheck,
+  ReleaseContractSummary,
+  RunnerProofMetadata,
+  ValidateProofBundleInputs,
+} from './proof.js'
+export {
   validateRunRecord,
   assertValidRunRecord,
   assertScenarioSetHashMatches,

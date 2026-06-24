@@ -26,6 +26,11 @@ import { pooled } from './concurrency.js'
 import { withJudgeCache } from './judge-cache.js'
 import { compareRuns, formatCompareTable } from './compare.js'
 import { buildMarkdownReport, createGist } from './publish.js'
+import {
+  buildProofBundleManifestFromFiles,
+  formatProofBundleManifest,
+  writeProofBundleManifest,
+} from './proof.js'
 import { createStderrLogger } from './progress.js'
 import type { Dataset, LLMJudgeExecutor, ModelResponse, RunRecord, Score } from './types.js'
 
@@ -360,6 +365,34 @@ program
     console.log(markdown)
   })
 
+const proof = program
+  .command('proof')
+  .description('build and verify public release proof bundles')
+
+proof
+  .command('build')
+  .description('build a deterministic public proof-bundle manifest')
+  .requiredOption('--run <path>', 'RunRecord JSON path')
+  .requiredOption('--contract <path>', 'release-contract JSON path')
+  .option('-d, --dataset <path>', 'dataset directory or bundle file to recompute scenario-set hash')
+  .option('-o, --out <path>', 'output proof manifest JSON path; defaults to stdout')
+  .action(async (opts: ProofBuildOptions) => {
+    const manifest = await buildProofBundleManifestFromFiles({
+      runPath: opts.run,
+      releaseContractPath: opts.contract,
+      ...(opts.dataset ? { datasetPath: opts.dataset } : {}),
+      commandLine: process.argv.slice(1),
+    })
+
+    if (opts.out) {
+      await writeProofBundleManifest(opts.out, manifest)
+      console.log(`wrote ${opts.out}`)
+      return
+    }
+
+    console.log(formatProofBundleManifest(manifest))
+  })
+
 await program.parseAsync(process.argv)
 
 function parseIntSafe(value: string): number {
@@ -401,6 +434,13 @@ interface PublishOptions {
   dataset?: string
   contractHash?: string
   leaderboardEligible?: boolean
+}
+
+interface ProofBuildOptions {
+  run: string
+  contract: string
+  dataset?: string
+  out?: string
 }
 
 function isRunRecordLike(value: unknown): value is RunRecord {

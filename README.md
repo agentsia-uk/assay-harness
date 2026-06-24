@@ -126,6 +126,26 @@ node -e "const j=require('./assay-adtech-v1.8.0-rc.4-release-contract.json'); co
 
 A `RunRecord` is bound to the `scenarioSetHash` it was produced against, so a number is always tied to the exact corpus it was measured on and cannot be quoted against a different one. The benchmark claims page and release contract are the public source of truth for Assay-Adtech leaderboard claims. The sample files under `examples/scenarios` are only smoke-test fixtures for the harness package.
 
+## Public Proof Bundles
+
+`assay proof build` creates a deterministic public proof manifest for a
+`RunRecord` plus release contract:
+
+```bash
+pnpm assay proof build \
+  --run runs/frontier-run.json \
+  --contract artifacts/assay-adtech-release-contract.json \
+  --dataset artifacts/public-harness-export.json \
+  --out artifacts/assay-proof.json
+```
+
+The proof includes checksums, hash schema, scenario-set hash, release-contract
+hash, claim-gate status, runner metadata, redacted command line, aggregate
+results, and reproducibility self-test status. It does not copy private answer
+keys, pass/fail criteria, raw outputs, or per-scenario scores. See
+[`docs/proof-bundle-format.md`](docs/proof-bundle-format.md) for the full
+format.
+
 ## Frontier Baseline Snapshot
 
 The SVG above is derived from the published, version-labelled Modelsmith **v1.0** production-baseline proof package for the governed 344-scenario corpus, hash `04e0063373df`. It summarizes no-tools frontier runs over that corpus. These are the only Assay-Adtech frontier numbers cleared for leaderboard reference today.
