@@ -101,6 +101,28 @@ describe('scenario diagnostics and interoperability exports', () => {
     })
   })
 
+  it('treats blank outcome labels as missing outcome metadata', () => {
+    const blankOutcomeDataset: Dataset = {
+      ...dataset,
+      scenarios: [
+        {
+          ...dataset.scenarios[0],
+          meta: { ...dataset.scenarios[0].meta, outcomeType: '   ' },
+        },
+      ],
+    }
+
+    const report = auditScenarioSet(blankOutcomeDataset)
+
+    expect(report.coverage.outcomes.counts).toEqual({})
+    expect(report.coverage.outcomes.scenarioIdsWithoutOutcome).toEqual(['s1'])
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'outcome-coverage',
+      severity: 'claim-blocking',
+      scenarioIds: ['s1'],
+    }))
+  })
+
   it('flags near-copy leakage with token n-gram overlap, not only exact prompt matches', () => {
     const fuzzyDataset: Dataset = {
       ...dataset,

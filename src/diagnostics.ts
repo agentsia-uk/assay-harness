@@ -163,9 +163,7 @@ export function analyseScenarioItems(
     const passRate = scenarioScores.length === 0
       ? 0
       : scenarioScores.reduce((sum, score) => sum + score.value, 0) / scenarioScores.length
-    const outcomeType = typeof scenario.meta?.['outcomeType'] === 'string'
-      ? scenario.meta['outcomeType']
-      : undefined
+    const outcomeType = normaliseOutcomeType(scenario)
     const itemFlags: string[] = []
 
     if (outcomeType) outcomeCoverage[outcomeType] = (outcomeCoverage[outcomeType] ?? 0) + 1
@@ -268,7 +266,7 @@ export function auditScenarioSet(
 
   const outcomeCoverage = sortRecord(itemReport.outcomeCoverage)
   const scenarioIdsWithoutOutcome = dataset.scenarios
-    .filter((scenario) => typeof scenario.meta?.['outcomeType'] !== 'string')
+    .filter((scenario) => normaliseOutcomeType(scenario) === undefined)
     .map((scenario) => scenario.id)
   const missingRequiredOutcomes = requiredOutcomeTypes
     .filter((outcomeType) => (outcomeCoverage[outcomeType] ?? 0) === 0)
@@ -683,6 +681,13 @@ function coerceDomainFacts(value: unknown): DomainFactMetadata[] {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normaliseOutcomeType(scenario: Scenario): string | undefined {
+  const value = scenario.meta?.['outcomeType']
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 function normaliseText(value: string): string {
