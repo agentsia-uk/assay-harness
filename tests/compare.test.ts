@@ -4,7 +4,7 @@ import type { RunRecord } from '../src/types.js'
 
 function makeRun(
   id: string,
-  scores: Array<{ scenarioId: string; value: number }>,
+  scores: Array<{ scenarioId: string; value: number; axis?: string }>,
   opts: { scenarioSetHash?: string, runners?: string[] } = {},
 ): RunRecord {
   const runners = opts.runners ?? [`stub:${id}`]
@@ -18,7 +18,7 @@ function makeRun(
     scores: scores.map((s) => ({
       runnerId: runners[0] ?? `stub:${id}`,
       scenarioId: s.scenarioId,
-      axis: 'quality',
+      axis: s.axis ?? 'quality',
       value: s.value,
     })),
     aggregates: [],
@@ -153,6 +153,53 @@ describe('compareRuns', () => {
     expect(result.interval.status).toBe('unavailable')
     expect(result.interval.missingFromRun2).toEqual(['s2'])
     expect(result.interval.warnings.join('\n')).toContain('paired comparison incomplete')
+  })
+
+  it('withholds promotion intervals when paired scenario score keys differ', () => {
+    const run1 = makeRun('a', [
+      { scenarioId: 's1', axis: 'quality', value: 0.4 },
+      { scenarioId: 's1', axis: 'safety', value: 0.6 },
+    ])
+    const run2 = makeRun('b', [
+      { scenarioId: 's1', axis: 'quality', value: 0.7 },
+    ])
+
+    const result = compareRuns(run1, run2)
+
+    expect(result.interval.status).toBe('unavailable')
+    expect(result.interval.promotionClaimSupported).toBe(false)
+    expect(result.interval.missingScoreKeysFromRun2).toEqual([
+      's1/safety (run1=1, run2=0)',
+    ])
+    expect(result.interval.warnings.join('\n')).toContain(
+      'paired comparison score keys differ',
+    )
+  })
+
+  it('withholds promotion intervals for invalid bootstrap options', () => {
+    const run1 = makeRun('a', [
+      { scenarioId: 's1', value: 0.4 },
+      { scenarioId: 's2', value: 0.6 },
+    ])
+    const run2 = makeRun('b', [
+      { scenarioId: 's1', value: 0.7 },
+      { scenarioId: 's2', value: 0.9 },
+    ])
+
+    const result = compareRuns(run1, run2, {
+      iterations: 0,
+      confidenceLevel: 1,
+    })
+
+    expect(result.interval.status).toBe('unavailable')
+    expect(result.interval.confidenceInterval).toBeNull()
+    expect(result.interval.promotionClaimSupported).toBe(false)
+    expect(result.interval.warnings.join('\n')).toContain(
+      'invalid paired-bootstrap iterations 0',
+    )
+    expect(result.interval.warnings.join('\n')).toContain(
+      'invalid paired-bootstrap confidence level 1',
+    )
   })
 
   it('fails clearly for multi-runner RunRecords', () => {

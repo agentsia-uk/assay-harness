@@ -30,6 +30,8 @@ export interface CompareIntervalMetadata {
   totalScenarioCount: number
   missingFromRun1: string[]
   missingFromRun2: string[]
+  missingScoreKeysFromRun1: string[]
+  missingScoreKeysFromRun2: string[]
   scenarioSetHash: {
     run1: string | null
     run2: string | null
@@ -88,6 +90,7 @@ export function compareRuns(
   const allIds = [...new Set([...map1.keys(), ...map2.keys()])].sort()
   const missingFromRun1 = [...map2.keys()].filter((id) => !map1.has(id)).sort()
   const missingFromRun2 = [...map1.keys()].filter((id) => !map2.has(id)).sort()
+  const scoreKeyMismatch = compareScoreKeyCounts(run1.scores, run2.scores)
 
   const rows: ScenarioComparison[] = allIds.map((id) => {
     const s1 = map1.get(id) ?? null
@@ -119,6 +122,8 @@ export function compareRuns(
     rows,
     missingFromRun1,
     missingFromRun2,
+    missingScoreKeysFromRun1: scoreKeyMismatch.missingFromRun1,
+    missingScoreKeysFromRun2: scoreKeyMismatch.missingFromRun2,
     confidence,
   })
 
@@ -139,9 +144,20 @@ function buildIntervalMetadata(args: {
   rows: ScenarioComparison[]
   missingFromRun1: string[]
   missingFromRun2: string[]
+  missingScoreKeysFromRun1: string[]
+  missingScoreKeysFromRun2: string[]
   confidence: BootstrapOptions
 }): CompareIntervalMetadata {
-  const { run1, run2, rows, missingFromRun1, missingFromRun2, confidence } = args
+  const {
+    run1,
+    run2,
+    rows,
+    missingFromRun1,
+    missingFromRun2,
+    missingScoreKeysFromRun1,
+    missingScoreKeysFromRun2,
+    confidence,
+  } = args
   const hashStatus = scenarioSetHashStatus(run1.scenarioSetHash, run2.scenarioSetHash)
   const warnings: string[] = []
   if (hashStatus === 'mismatch') {
@@ -158,15 +174,25 @@ function buildIntervalMetadata(args: {
   if (missingFromRun1.length > 0 || missingFromRun2.length > 0) {
     warnings.push(
       `paired comparison incomplete: ${missingFromRun1.length} scenario(s) missing from run1, ` +
-        `${missingFromRun2.length} scenario(s) missing from run2; paired-bootstrap interval withheld`,
+      `${missingFromRun2.length} scenario(s) missing from run2; paired-bootstrap interval withheld`,
     )
   }
+  if (missingScoreKeysFromRun1.length > 0 || missingScoreKeysFromRun2.length > 0) {
+    warnings.push(
+      `paired comparison score keys differ: ${missingScoreKeysFromRun1.length} key(s) missing from run1, ` +
+        `${missingScoreKeysFromRun2.length} key(s) missing from run2; paired-bootstrap interval withheld`,
+    )
+  }
+  warnings.push(...validateBootstrapOptions(confidence))
 
   const pairedScenarioCount = rows.filter((row) => row.delta !== null).length
   const canUseInterval =
     hashStatus === 'match' &&
     missingFromRun1.length === 0 &&
     missingFromRun2.length === 0 &&
+    missingScoreKeysFromRun1.length === 0 &&
+    missingScoreKeysFromRun2.length === 0 &&
+    validateBootstrapOptions(confidence).length === 0 &&
     pairedScenarioCount > 0
 
   if (!canUseInterval) {
@@ -182,6 +208,8 @@ function buildIntervalMetadata(args: {
       totalScenarioCount: rows.length,
       missingFromRun1,
       missingFromRun2,
+      missingScoreKeysFromRun1,
+      missingScoreKeysFromRun2,
       scenarioSetHash: {
         run1: run1.scenarioSetHash ?? null,
         run2: run2.scenarioSetHash ?? null,
@@ -216,12 +244,71 @@ function buildIntervalMetadata(args: {
     totalScenarioCount: rows.length,
     missingFromRun1,
     missingFromRun2,
+    missingScoreKeysFromRun1,
+    missingScoreKeysFromRun2,
     scenarioSetHash: {
       run1: run1.scenarioSetHash ?? null,
       run2: run2.scenarioSetHash ?? null,
       status: hashStatus,
     },
   }
+}
+
+function compareScoreKeyCounts(
+  run1Scores: Score[],
+  run2Scores: Score[],
+): { missingFromRun1: string[], missingFromRun2: string[] } {
+  const run1Counts = scoreKeyCounts(run1Scores)
+  const run2Counts = scoreKeyCounts(run2Scores)
+  const allKeys = [...new Set([...run1Counts.keys(), ...run2Counts.keys()])].sort()
+  const missingFromRun1: string[] = []
+  const missingFromRun2: string[] = []
+  for (const key of allKeys) {
+    const count1 = run1Counts.get(key) ?? 0
+    const count2 = run2Counts.get(key) ?? 0
+    if (count1 < count2) {
+      missingFromRun1.push(`${key} (run1=${count1}, run2=${count2})`)
+    } else if (count2 < count1) {
+      missingFromRun2.push(`${key} (run1=${count1}, run2=${count2})`)
+    }
+  }
+  return { missingFromRun1, missingFromRun2 }
+}
+
+function scoreKeyCounts(scores: Score[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const score of scores) {
+    const key = `${score.scenarioId}/${score.axis}`
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
+function validateBootstrapOptions(confidence: BootstrapOptions): string[] {
+  const warnings: string[] = []
+  if (!Number.isInteger(confidence.iterations) || confidence.iterations < 1) {
+    warnings.push(
+      `invalid paired-bootstrap iterations ${JSON.stringify(confidence.iterations)}; ` +
+        'paired-bootstrap interval withheld',
+    )
+  }
+  if (
+    !Number.isFinite(confidence.confidenceLevel) ||
+    confidence.confidenceLevel <= 0 ||
+    confidence.confidenceLevel >= 1
+  ) {
+    warnings.push(
+      `invalid paired-bootstrap confidence level ${JSON.stringify(confidence.confidenceLevel)}; ` +
+        'expected a finite value greater than 0 and less than 1; paired-bootstrap interval withheld',
+    )
+  }
+  if (!Number.isInteger(confidence.seed)) {
+    warnings.push(
+      `invalid paired-bootstrap seed ${JSON.stringify(confidence.seed)}; ` +
+        'paired-bootstrap interval withheld',
+    )
+  }
+  return warnings
 }
 
 function scenarioSetHashStatus(
