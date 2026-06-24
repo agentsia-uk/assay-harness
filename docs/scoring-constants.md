@@ -1,7 +1,7 @@
 # Governed scoring constants (Rule-28)
 
 The mechanism scorer (assay-harness#54, council `assay-harness-review-2026-06-18`,
-3/3) leans on three numeric constants. Each one is load-bearing for the
+3/3) leans on a small set of numeric constants. Each one is load-bearing for the
 anti-bingo claim the public README makes, so each one carries a documented
 derivation here AND a unit assertion in `tests/scoring-constants.test.ts` that
 fails the build if the value silently drifts. Changing any value means changing
@@ -39,7 +39,26 @@ circumstances, flag" insertions. Clause boundaries (`. ! ? ;`, "but", "however",
 "then") reset the window, bounding the blast radius regardless. Inherited from
 the Modelsmith matcher (`src/lib/eval/rubric-text-matchers.ts`).
 
-## 3. Frontier quorum — `≥2/3`
+## 3. Mechanism gate weights — `0.45`, `0.35`, `0.2`
+
+Defined: `MECHANISM_GATE_WEIGHTS` in `src/mechanism.ts`.
+
+The mechanism scorer combines three public gates:
+
+| Gate | Weight |
+| --- | ---: |
+| quantitative | `0.45` |
+| disambiguation | `0.35` |
+| action | `0.2` |
+
+Derivation. Quantitative evidence is the load-bearing gate, so it receives the
+largest single weight but stays below the `0.5` pass threshold on its own.
+Disambiguation is next because the scorer must distinguish the right mechanism
+from a plausible wrong one. Action receives the remaining mass so a complete
+answer still has to recommend a concrete signal-derived next step. The weights
+sum to 1.0 and are exported in the `mechanism-scorer-v1` fingerprint.
+
+## 4. Frontier quorum — `≥2/3`
 
 Defined: `FRONTIER_QUORUM_*` in `src/mechanism.ts` (documentary constants).
 
@@ -54,3 +73,46 @@ grader's outlier. 2/3 is the smallest majority that survives one grader
 disagreeing, matching the council's own 3-reviewer 2/3 quorum convention. The
 constant is asserted here so the publication gate cannot quietly relax to "any
 one grader agrees".
+
+## Public conformance fingerprints
+
+Defined: `MECHANISM_SCORER_FINGERPRINT` in `src/mechanism.ts` and
+`PERSISTENCE_GRADER_FINGERPRINT` in `src/persistence-grader.ts`.
+
+`mechanism-scorer-v1` fingerprints the public scorer version, anti-bingo cap,
+pass threshold, gate weights, negation window, frontier quorum, normalization
+assumptions, and predicate rules. It contains no scenario answers, examples, or
+private alias dictionaries.
+
+`persistence-grader-v1` fingerprints the public grader version, supported
+criterion kinds, negation window, fail-closed empty-criteria score (`0`), pass
+verdict, normalization assumptions, and the evidence-validity predicate below.
+It likewise contains no private answers or held-out phrase expansions.
+
+The cross-repo conformance fixture lives at
+`tests/fixtures/scorer-conformance/modelsmith-exported-public-expectations.json`.
+It is intentionally small and public-safe: synthetic criteria plus expected
+public scorer outputs, not Modelsmith source data.
+
+## Persistence evidence validity predicate
+
+Defined: `evaluatePersistenceEvidenceValidity()` and
+`isPersistenceEvidenceValid()` in `src/persistence-grader.ts`.
+
+The public predicate id is `persistence-grader-v1-evidence-validity`. It returns
+pass only when all of the following are true:
+
+- `graderVersion` is exactly `persistence-grader-v1`.
+- `scenarioSetHash` is present, and matches `expectedScenarioSetHash` when the
+  caller supplies one.
+- `traceRef` is a non-empty trace-backed evidence reference.
+- `recordedAt` is present.
+- `criteriaTotal` is a positive integer.
+- `criteriaPassed` equals `criteriaTotal`.
+
+It fails closed for missing evidence, missing or unsupported grader version,
+missing or stale scenario hash, missing trace reference, missing timestamp, zero
+criteria, or any criterion failure. This lets Modelsmith and assay-harness agree
+on whether persistence evidence is current and usable without importing private
+traces, prompts, answers, or producer-only alias dictionaries into the public
+package.

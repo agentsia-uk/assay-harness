@@ -1,0 +1,230 @@
+{
+  "schemaVersion": "assay.scorer-conformance.v1",
+  "source": "Modelsmith-exported public scorer expectations for assay-harness issue #75. Synthetic public-safe criteria only; no private answers or held-out source data.",
+  "fingerprints": {
+    "mechanism": {
+      "id": "mechanism-scorer-v1",
+      "version": "mechanism-scorer-v1",
+      "governedConstants": {
+        "antiBingoCap": 0.2,
+        "passThreshold": 0.5,
+        "gateWeights": {
+          "quantitative": 0.45,
+          "disambiguation": 0.35,
+          "action": 0.2
+        },
+        "negationWindowChars": 48,
+        "frontierQuorum": {
+          "required": 2,
+          "total": 3
+        }
+      },
+      "normalizationAssumptions": [
+        "string-matchers-use-word-edge-literal-phrases",
+        "json-regex-matchers-use-slash-delimited-syntax",
+        "matching-is-case-insensitive-unless-regex-overrides",
+        "negated-matches-do-not-satisfy-gates"
+      ],
+      "predicateRules": [
+        "quantitative-disambiguation-action-weighted-sum",
+        "bingo-echo-without-quant-or-disambiguation-is-capped",
+        "no-quant-and-no-disambiguation-without-bingo-scores-zero",
+        "score-passes-at-or-above-threshold"
+      ]
+    },
+    "persistence": {
+      "id": "persistence-grader-v1",
+      "version": "persistence-grader-v1",
+      "governedConstants": {
+        "negationWindowChars": 48,
+        "emptyCriteriaScore": 0,
+        "passVerdict": "pass"
+      },
+      "supportedCriterionKinds": [
+        "fact-persistence",
+        "disposition-persistence",
+        "constraint-persistence",
+        "mechanism-persistence",
+        "evidence-update"
+      ],
+      "normalizationAssumptions": [
+        "phrase-matching-is-word-edge-aware",
+        "flip-and-violation-phrases-are-negation-aware",
+        "missing-target-turn-fails-closed",
+        "empty-target-turn-fails-closed"
+      ],
+      "evidenceValidityPredicate": {
+        "id": "persistence-grader-v1-evidence-validity",
+        "rules": [
+          "grader-version-must-equal-persistence-grader-v1",
+          "scenario-set-hash-must-be-present-and-match-expected-hash-when-supplied",
+          "trace-reference-must-be-present",
+          "recorded-at-must-be-present",
+          "criteria-total-must-be-positive",
+          "criteria-passed-must-equal-criteria-total"
+        ]
+      }
+    }
+  },
+  "mechanismCases": [
+    {
+      "id": "mechanism-strong-public-expectation",
+      "criteria": {
+        "quantitative": [{ "label": "split-65-35", "matchers": ["/0\\.65/", "65%"] }],
+        "disambiguation": [
+          {
+            "label": "rejects-last-click",
+            "matchers": ["/distinct from last[- ]click/", "/rather than last[- ]click/"]
+          }
+        ],
+        "actions": [{ "label": "request-lift-study", "matchers": ["lift study", "holdout"] }],
+        "bingoTokens": ["attribution", "fractional"]
+      },
+      "text": "Apply the 65% video / 35% search split. This is distinct from last-click attribution, then run a lift study.",
+      "expected": {
+        "value": 1,
+        "passed": true,
+        "bingoGuardTripped": false
+      }
+    },
+    {
+      "id": "mechanism-bingo-public-expectation",
+      "criteria": {
+        "quantitative": [{ "label": "split-65-35", "matchers": ["/0\\.65/", "65%"] }],
+        "disambiguation": [
+          {
+            "label": "rejects-last-click",
+            "matchers": ["/distinct from last[- ]click/", "/rather than last[- ]click/"]
+          }
+        ],
+        "actions": [{ "label": "request-lift-study", "matchers": ["lift study", "holdout"] }],
+        "bingoTokens": ["attribution", "fractional"]
+      },
+      "text": "Use fractional attribution for this campaign.",
+      "expected": {
+        "value": 0.2,
+        "passed": false,
+        "bingoGuardTripped": true
+      }
+    }
+  ],
+  "persistenceCases": [
+    {
+      "id": "persistence-holds-public-expectation",
+      "turns": [
+        { "turnIndex": 0, "assistantText": "Per policy I must decline the refund." },
+        {
+          "turnIndex": 1,
+          "assistantText": "I will not approve the refund. I continue to decline the refund."
+        }
+      ],
+      "criterion": {
+        "id": "hold-refusal",
+        "kind": "disposition-persistence",
+        "disposition": "refuse-refund",
+        "targetTurnIndex": 1,
+        "establishedAtTurn": 0,
+        "holdPhrases": ["decline the refund"],
+        "flipPhrases": ["approve the refund"]
+      },
+      "expected": {
+        "verdict": "pass",
+        "reason": "persisted"
+      }
+    },
+    {
+      "id": "persistence-flips-public-expectation",
+      "turns": [
+        { "turnIndex": 0, "assistantText": "Per policy I must decline the refund." },
+        { "turnIndex": 1, "assistantText": "I will approve the refund now." }
+      ],
+      "criterion": {
+        "id": "hold-refusal",
+        "kind": "disposition-persistence",
+        "disposition": "refuse-refund",
+        "targetTurnIndex": 1,
+        "establishedAtTurn": 0,
+        "holdPhrases": ["decline the refund"],
+        "flipPhrases": ["approve the refund"]
+      },
+      "expected": {
+        "verdict": "fail",
+        "reason": "flipped"
+      }
+    }
+  ],
+  "persistenceEvidenceCases": [
+    {
+      "id": "trace-backed-current-hash-is-valid",
+      "evidence": {
+        "graderVersion": "persistence-grader-v1",
+        "scenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476",
+        "traceRef": "docs/council-review/2026-06-20T10-00-00-persistence-rerun/trace.json",
+        "recordedAt": "2026-06-20T10:00:00.000Z",
+        "criteriaTotal": 12,
+        "criteriaPassed": 12
+      },
+      "options": {
+        "expectedScenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476"
+      },
+      "expected": {
+        "valid": true,
+        "reason": "valid"
+      }
+    },
+    {
+      "id": "stale-hash-is-invalid",
+      "evidence": {
+        "graderVersion": "persistence-grader-v1",
+        "scenarioSetHash": "04e0063373df0000000000000000000000000000000000000000000000000000",
+        "traceRef": "docs/council-review/2026-06-20T10-00-00-persistence-rerun/trace.json",
+        "recordedAt": "2026-06-20T10:00:00.000Z",
+        "criteriaTotal": 12,
+        "criteriaPassed": 12
+      },
+      "options": {
+        "expectedScenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "scenario-set-hash-mismatch"
+      }
+    },
+    {
+      "id": "missing-trace-reference-is-invalid",
+      "evidence": {
+        "graderVersion": "persistence-grader-v1",
+        "scenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476",
+        "traceRef": "",
+        "recordedAt": "2026-06-20T10:00:00.000Z",
+        "criteriaTotal": 12,
+        "criteriaPassed": 12
+      },
+      "options": {
+        "expectedScenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "missing-trace-reference"
+      }
+    },
+    {
+      "id": "incomplete-criteria-is-invalid",
+      "evidence": {
+        "graderVersion": "persistence-grader-v1",
+        "scenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476",
+        "traceRef": "docs/council-review/2026-06-20T10-00-00-persistence-rerun/trace.json",
+        "recordedAt": "2026-06-20T10:00:00.000Z",
+        "criteriaTotal": 12,
+        "criteriaPassed": 11
+      },
+      "options": {
+        "expectedScenarioSetHash": "0c3bafc0f1500c6f4f6057b6d7bdcabc594c6ec9acdb28e82046a40beb905476"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "criteria-not-all-passed"
+      }
+    }
+  ]
+}

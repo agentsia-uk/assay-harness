@@ -7,9 +7,12 @@ import {
   ANTI_BINGO_CAP,
   FRONTIER_QUORUM_REQUIRED,
   FRONTIER_QUORUM_TOTAL,
+  MECHANISM_GATE_WEIGHTS,
   MECHANISM_PASS_THRESHOLD,
+  MECHANISM_SCORER_FINGERPRINT,
 } from '../src/mechanism.js'
 import { NEGATION_WINDOW_CHARS } from '../src/matchers.js'
+import { PERSISTENCE_GRADER_FINGERPRINT } from '../src/persistence-grader.js'
 
 /**
  * Governance (Rule-28) assertion of the three load-bearing scoring constants.
@@ -35,11 +38,46 @@ describe('governed scoring constants (Rule-28)', () => {
     expect(FRONTIER_QUORUM_REQUIRED).toBeLessThan(FRONTIER_QUORUM_TOTAL)
   })
 
+  it('mechanism gate weights are fingerprinted and remain load-bearing', () => {
+    expect(MECHANISM_GATE_WEIGHTS).toEqual({
+      quantitative: 0.45,
+      disambiguation: 0.35,
+      action: 0.2,
+    })
+    expect(MECHANISM_SCORER_FINGERPRINT.governedConstants.gateWeights).toEqual(
+      MECHANISM_GATE_WEIGHTS,
+    )
+    expect(
+      MECHANISM_GATE_WEIGHTS.quantitative +
+        MECHANISM_GATE_WEIGHTS.disambiguation +
+        MECHANISM_GATE_WEIGHTS.action,
+    ).toBeCloseTo(1, 12)
+  })
+
+  it('persistence evidence validity predicate is fingerprinted', () => {
+    expect(PERSISTENCE_GRADER_FINGERPRINT.governedConstants).toEqual({
+      negationWindowChars: NEGATION_WINDOW_CHARS,
+      emptyCriteriaScore: 0,
+      passVerdict: 'pass',
+    })
+    expect(PERSISTENCE_GRADER_FINGERPRINT.evidenceValidityPredicate.id).toBe(
+      'persistence-grader-v1-evidence-validity',
+    )
+    expect(PERSISTENCE_GRADER_FINGERPRINT.evidenceValidityPredicate.rules).toContain(
+      'criteria-passed-must-equal-criteria-total',
+    )
+  })
+
   it('docs/scoring-constants.md documents each governed value (derivation present)', () => {
     const doc = readFileSync(resolve(__dirname, '..', 'docs', 'scoring-constants.md'), 'utf8')
     expect(doc).toMatch(/`0\.2`/)
+    expect(doc).toMatch(/`0\.45`/)
+    expect(doc).toMatch(/`0\.35`/)
     expect(doc).toMatch(/`48`/)
     expect(doc).toMatch(/2\/3/)
+    expect(doc).toContain('mechanism-scorer-v1')
+    expect(doc).toContain('persistence-grader-v1')
+    expect(doc).toContain('persistence-grader-v1-evidence-validity')
     expect(doc.toLowerCase()).toContain('derivation')
   })
 })

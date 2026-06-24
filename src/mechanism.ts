@@ -35,7 +35,10 @@
  * fields never ride in the public scorer rule.
  */
 
-import { containsUnnegatedMatch, tokenPresent } from './matchers.js'
+import { containsUnnegatedMatch, NEGATION_WINDOW_CHARS, tokenPresent } from './matchers.js'
+
+/** Stable public scorer id for conformance fixtures and release fingerprints. */
+export const MECHANISM_SCORER_VERSION = 'mechanism-scorer-v1' as const
 
 /**
  * GOVERNED CONSTANT (Rule-28). Hard cap applied when an answer's only support is
@@ -80,9 +83,47 @@ export const FRONTIER_QUORUM_REQUIRED = 2
 export const FRONTIER_QUORUM_TOTAL = 3
 
 /** Gate weights. Quantitative is the load-bearing mechanism. */
-const QUANT_WEIGHT = 0.45
-const DISAMBIG_WEIGHT = 0.35
-const ACTION_WEIGHT = 0.2
+export const MECHANISM_GATE_WEIGHTS = {
+  quantitative: 0.45,
+  disambiguation: 0.35,
+  action: 0.2,
+} as const
+
+const QUANT_WEIGHT = MECHANISM_GATE_WEIGHTS.quantitative
+const DISAMBIG_WEIGHT = MECHANISM_GATE_WEIGHTS.disambiguation
+const ACTION_WEIGHT = MECHANISM_GATE_WEIGHTS.action
+
+/**
+ * Public-safe deterministic scorer fingerprint. This carries rules and governed
+ * constants only; it intentionally contains no per-scenario answers, examples,
+ * or private alias dictionaries.
+ */
+export const MECHANISM_SCORER_FINGERPRINT = {
+  id: MECHANISM_SCORER_VERSION,
+  version: MECHANISM_SCORER_VERSION,
+  governedConstants: {
+    antiBingoCap: ANTI_BINGO_CAP,
+    passThreshold: MECHANISM_PASS_THRESHOLD,
+    gateWeights: MECHANISM_GATE_WEIGHTS,
+    negationWindowChars: NEGATION_WINDOW_CHARS,
+    frontierQuorum: {
+      required: FRONTIER_QUORUM_REQUIRED,
+      total: FRONTIER_QUORUM_TOTAL,
+    },
+  },
+  normalizationAssumptions: [
+    'string-matchers-use-word-edge-literal-phrases',
+    'json-regex-matchers-use-slash-delimited-syntax',
+    'matching-is-case-insensitive-unless-regex-overrides',
+    'negated-matches-do-not-satisfy-gates',
+  ],
+  predicateRules: [
+    'quantitative-disambiguation-action-weighted-sum',
+    'bingo-echo-without-quant-or-disambiguation-is-capped',
+    'no-quant-and-no-disambiguation-without-bingo-scores-zero',
+    'score-passes-at-or-above-threshold',
+  ],
+} as const
 
 export interface MechanismGate {
   /** Friendly label surfaced in the rationale when the gate is missed. */

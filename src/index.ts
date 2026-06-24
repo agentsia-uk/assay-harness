@@ -16,6 +16,9 @@ export type { StringMatcherMode } from './matchers.js'
 export {
   scoreMechanism,
   coerceCriteria,
+  MECHANISM_SCORER_VERSION,
+  MECHANISM_SCORER_FINGERPRINT,
+  MECHANISM_GATE_WEIGHTS,
   ANTI_BINGO_CAP,
   MECHANISM_PASS_THRESHOLD,
   FRONTIER_QUORUM_REQUIRED,
@@ -92,6 +95,11 @@ export {
   gradePersistence,
   scorePersistence,
   PERSISTENCE_GRADER_VERSION,
+  PERSISTENCE_GRADER_FINGERPRINT,
+  PERSISTENCE_EVIDENCE_VALIDITY_PREDICATE_ID,
+  PERSISTENCE_CRITERION_KINDS,
+  evaluatePersistenceEvidenceValidity,
+  isPersistenceEvidenceValid,
 } from './persistence-grader.js'
 export type {
   TurnObservation,
@@ -104,4 +112,8 @@ export type {
   ConstraintPersistenceCriterion,
   MechanismPersistenceCriterion,
   EvidenceUpdateCriterion,
+  PersistenceEvidenceReference,
+  PersistenceEvidenceValidity,
+  PersistenceEvidenceValidityOptions,
+  PersistenceEvidenceValidityReason,
 } from './persistence-grader.js'
