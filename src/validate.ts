@@ -1,4 +1,5 @@
-import type { Dataset, RunRecord } from './types.js'
+import { auditScenarioSet } from './diagnostics.js'
+import type { ClaimCard, Dataset, RunRecord, Score } from './types.js'
 import {
   SCENARIO_SET_HASH_SCHEMA_V1,
   SCENARIO_SET_HASH_SCHEMA_V2,
@@ -8,6 +9,22 @@ import {
 export interface ValidationResult {
   valid: boolean
   errors: string[]
+}
+
+export interface ClaimEligibilityOptions {
+  dataset?: Dataset
+  claimCard?: ClaimCard
+  now?: Date | string
+}
+
+export class ClaimEligibilityError extends Error {
+  readonly errors: string[]
+
+  constructor(errors: string[]) {
+    super(`leaderboard claim eligibility failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`)
+    this.name = 'ClaimEligibilityError'
+    this.errors = errors
+  }
 }
 
 /**
@@ -134,6 +151,132 @@ export function assertScenarioStratificationPublishable(
   }
 }
 
+export function validateClaimCard(value: unknown, now: Date | string = new Date()): ValidationResult {
+  const errors: string[] = []
+  if (!isRecord(value)) return { valid: false, errors: ['ClaimCard must be a plain object'] }
+
+  if (value['schemaVersion'] !== 'assay.claim-card.v1') {
+    errors.push('ClaimCard.schemaVersion must be "assay.claim-card.v1"')
+  }
+  const dataset = requireObject(value, 'dataset', 'ClaimCard', errors)
+  if (dataset) {
+    requireString(dataset, 'name', 'ClaimCard.dataset', errors)
+    requireString(dataset, 'version', 'ClaimCard.dataset', errors)
+  }
+  requireString(value, 'scenarioSetHash', 'ClaimCard', errors)
+  validateKnownHashSchemaVersion(value['hashSchemaVersion'], 'ClaimCard.hashSchemaVersion', errors)
+  if (value['status'] !== 'allowed' && value['status'] !== 'blocked') {
+    errors.push('ClaimCard.status must be "allowed" or "blocked"')
+  }
+  if (typeof value['leaderboardClaimsAllowed'] !== 'boolean') {
+    errors.push('ClaimCard.leaderboardClaimsAllowed must be a boolean')
+  }
+  if (value['generatedAt'] !== undefined && !isValidDateString(value['generatedAt'])) {
+    errors.push('ClaimCard.generatedAt must be an ISO-like date string when present')
+  }
+  if (value['expiresAt'] !== undefined) {
+    if (!isValidDateString(value['expiresAt'])) {
+      errors.push('ClaimCard.expiresAt must be an ISO-like date string when present')
+    } else if (new Date(value['expiresAt'] as string).getTime() <= normaliseNow(now).getTime()) {
+      errors.push('ClaimCard has expired')
+    }
+  }
+  if (value['allowedClaimText'] !== undefined && typeof value['allowedClaimText'] !== 'string') {
+    errors.push('ClaimCard.allowedClaimText must be a string when present')
+  }
+  if (value['blocker'] !== undefined && typeof value['blocker'] !== 'string') {
+    errors.push('ClaimCard.blocker must be a string when present')
+  }
+  for (const key of ['implementationFingerprints', 'scorerFingerprints']) {
+    if (value[key] !== undefined) {
+      if (!Array.isArray(value[key])) {
+        errors.push(`ClaimCard.${key} must be an array when present`)
+      } else {
+        ;(value[key] as unknown[]).forEach((fingerprint, i) => {
+          validateFingerprint(fingerprint, `ClaimCard.${key}[${i}]`, errors)
+        })
+      }
+    }
+  }
+  if (value['quorum'] !== undefined) validateClaimQuorum(value['quorum'], errors)
+  if (value['providerCells'] !== undefined) {
+    if (!Array.isArray(value['providerCells'])) {
+      errors.push('ClaimCard.providerCells must be an array when present')
+    } else {
+      ;(value['providerCells'] as unknown[]).forEach((cell, i) =>
+        validateClaimProviderCell(cell, `ClaimCard.providerCells[${i}]`, errors),
+      )
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
+}
+
+export function assertRunClaimEligible(
+  record: RunRecord,
+  options: ClaimEligibilityOptions = {},
+): void {
+  const errors: string[] = []
+  errors.push(...aggregateConfidenceErrors(record))
+  errors.push(...scoreClaimStatusErrors(record.scores))
+
+  if (options.dataset) {
+    errors.push(...datasetIdentityErrors(record, options.dataset))
+    const diagnostics = auditScenarioSet(options.dataset, {
+      record,
+      requiredOutcomeTypes: [...REQUIRED_OUTCOME_TYPES],
+    })
+    for (const finding of diagnostics.findings.filter((f) => f.severity === 'claim-blocking')) {
+      errors.push(`${finding.kind}: ${finding.detail}`)
+    }
+    try {
+      assertScenarioStratificationPublishable(diagnostics.coverage.outcomes.counts)
+    } catch (err) {
+      if (err instanceof ScenarioStratificationPublicationError) {
+        errors.push(...err.reasons)
+      } else {
+        throw err
+      }
+    }
+  }
+
+  if (options.claimCard) {
+    const validation = validateClaimCard(options.claimCard, options.now)
+    errors.push(...validation.errors)
+    if (validation.valid) {
+      errors.push(...claimCardRunErrors(record, options.claimCard, options.dataset, options.now))
+    }
+  }
+
+  if (errors.length > 0) throw new ClaimEligibilityError(errors)
+}
+
+export function aggregateConfidenceErrors(record: RunRecord): string[] {
+  const errors: string[] = []
+  if (record.aggregates.length === 0) {
+    errors.push('RunRecord.aggregates must contain at least one aggregate with confidence intervals')
+    return errors
+  }
+  for (const aggregateRecord of record.aggregates) {
+    if (!aggregateRecord.statisticalClaims) {
+      errors.push(
+        `aggregate for runner "${aggregateRecord.runnerId}" is missing statisticalClaims; ` +
+          'leaderboard-eligible publish requires bootstrap confidence intervals',
+      )
+    }
+    const axes = Object.entries(aggregateRecord.axes)
+    if (axes.length === 0) errors.push(`aggregate for runner "${aggregateRecord.runnerId}" has no axes`)
+    for (const [axis, axisAggregate] of axes) {
+      if (!axisAggregate.confidenceInterval) {
+        errors.push(
+          `aggregate for runner "${aggregateRecord.runnerId}" axis "${axis}" is missing a confidence interval`,
+        )
+      }
+    }
+  }
+  return errors
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
@@ -195,6 +338,158 @@ function requireObject(
     return null
   }
   return value
+}
+
+function validateClaimQuorum(value: unknown, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push('ClaimCard.quorum must be an object when present')
+    return
+  }
+  if (typeof value['required'] !== 'number' || !Number.isInteger(value['required']) || value['required'] < 1) {
+    errors.push('ClaimCard.quorum.required must be a positive integer')
+  }
+  requireStringArray(value, 'providers', 'ClaimCard.quorum', errors)
+}
+
+function validateClaimProviderCell(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  requireString(value, 'provider', path, errors)
+  if (
+    value['status'] !== 'verified' &&
+    value['status'] !== 'failed' &&
+    value['status'] !== 'blocked' &&
+    value['status'] !== 'stale'
+  ) {
+    errors.push(`${path}.status must be verified, failed, blocked, or stale`)
+  }
+  for (const key of ['model', 'generatedAt', 'expiresAt', 'proofUrl']) {
+    if (value[key] !== undefined && typeof value[key] !== 'string') {
+      errors.push(`${path}.${key} must be a string when present`)
+    }
+  }
+  if (value['generatedAt'] !== undefined && !isValidDateString(value['generatedAt'])) {
+    errors.push(`${path}.generatedAt must be an ISO-like date string when present`)
+  }
+  if (value['expiresAt'] !== undefined && !isValidDateString(value['expiresAt'])) {
+    errors.push(`${path}.expiresAt must be an ISO-like date string when present`)
+  }
+}
+
+function datasetIdentityErrors(record: RunRecord, dataset: Dataset): string[] {
+  const errors: string[] = []
+  if (record.dataset.name !== dataset.name) {
+    errors.push(`RunRecord.dataset.name "${record.dataset.name}" does not match dataset name "${dataset.name}"`)
+  }
+  if (record.dataset.version !== dataset.version) {
+    errors.push(
+      `RunRecord.dataset.version "${record.dataset.version}" does not match dataset version "${dataset.version}"`,
+    )
+  }
+  if (record.scenarioSetHashSchemaVersion === SCENARIO_SET_HASH_SCHEMA_V2) {
+    const metadata = record.scenarioSetHashMetadata
+    if (!metadata || metadata.hashSchemaVersion !== SCENARIO_SET_HASH_SCHEMA_V2) {
+      errors.push('RunRecord.scenarioSetHashMetadata v2 is required for v2 claim eligibility')
+    } else {
+      if (metadata.dataset.name !== dataset.name) {
+        errors.push('RunRecord.scenarioSetHashMetadata.dataset.name must match the supplied dataset')
+      }
+      if (metadata.dataset.version !== dataset.version) {
+        errors.push('RunRecord.scenarioSetHashMetadata.dataset.version must match the supplied dataset')
+      }
+      if (metadata.scenarioCount !== dataset.scenarios.length) {
+        errors.push('RunRecord.scenarioSetHashMetadata.scenarioCount must match the supplied dataset')
+      }
+    }
+  } else if (record.scenarioSetHash) {
+    const datasetHash = computeScenarioSetHash(dataset)
+    if (record.scenarioSetHash !== datasetHash) {
+      errors.push(`RunRecord.scenarioSetHash "${record.scenarioSetHash}" does not match supplied dataset hash "${datasetHash}"`)
+    }
+  } else {
+    errors.push('RunRecord.scenarioSetHash is required for claim eligibility')
+  }
+  return errors
+}
+
+function scoreClaimStatusErrors(scores: Score[]): string[] {
+  return scores
+    .filter((score) => score.claimStatus === 'analysis-only')
+    .map((score) =>
+      `score for runner "${score.runnerId}" scenario "${score.scenarioId}" axis "${score.axis}" is analysis-only`,
+    )
+}
+
+function claimCardRunErrors(
+  record: RunRecord,
+  card: ClaimCard,
+  dataset: Dataset | undefined,
+  nowInput: Date | string = new Date(),
+): string[] {
+  const errors: string[] = []
+  const now = normaliseNow(nowInput)
+  if (card.status !== 'allowed' || card.leaderboardClaimsAllowed !== true) {
+    errors.push(
+      `ClaimCard blocks leaderboard claims: status=${card.status}, ` +
+        `leaderboardClaimsAllowed=${String(card.leaderboardClaimsAllowed)}` +
+        (card.blocker ? `; blocker=${card.blocker}` : ''),
+    )
+  }
+  if (card.dataset.name !== record.dataset.name) {
+    errors.push(`ClaimCard.dataset.name "${card.dataset.name}" does not match RunRecord.dataset.name "${record.dataset.name}"`)
+  }
+  if (card.dataset.version !== record.dataset.version) {
+    errors.push(
+      `ClaimCard.dataset.version "${card.dataset.version}" does not match RunRecord.dataset.version "${record.dataset.version}"`,
+    )
+  }
+  if (dataset) {
+    if (card.dataset.name !== dataset.name) errors.push('ClaimCard.dataset.name must match the supplied dataset')
+    if (card.dataset.version !== dataset.version) errors.push('ClaimCard.dataset.version must match the supplied dataset')
+  }
+  if (record.scenarioSetHash !== card.scenarioSetHash) {
+    errors.push(`ClaimCard.scenarioSetHash "${card.scenarioSetHash}" does not match RunRecord.scenarioSetHash "${record.scenarioSetHash ?? 'missing'}"`)
+  }
+  const recordHashSchema = record.scenarioSetHashSchemaVersion ?? SCENARIO_SET_HASH_SCHEMA_V1
+  if (recordHashSchema !== card.hashSchemaVersion) {
+    errors.push(`ClaimCard.hashSchemaVersion "${card.hashSchemaVersion}" does not match RunRecord schema "${recordHashSchema}"`)
+  }
+  if (card.expiresAt && new Date(card.expiresAt).getTime() <= now.getTime()) {
+    errors.push('ClaimCard has expired')
+  }
+  if (card.quorum) {
+    const cells = card.providerCells ?? []
+    const verifiedProviders = new Set(
+      cells
+        .filter((cell) =>
+          card.quorum?.providers.includes(cell.provider) &&
+          cell.status === 'verified' &&
+          !isExpired(cell.expiresAt, now),
+        )
+        .map((cell) => cell.provider),
+    )
+    if (verifiedProviders.size < card.quorum.required) {
+      errors.push(
+        `ClaimCard quorum requires ${card.quorum.required} verified provider cells; ` +
+          `only ${verifiedProviders.size} are verified and fresh`,
+      )
+    }
+  }
+  return errors
+}
+
+function isExpired(value: string | undefined, now: Date): boolean {
+  return value !== undefined && new Date(value).getTime() <= now.getTime()
+}
+
+function isValidDateString(value: unknown): value is string {
+  return typeof value === 'string' && !Number.isNaN(new Date(value).getTime())
+}
+
+function normaliseNow(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value)
 }
 
 function validateKnownHashSchemaVersion(

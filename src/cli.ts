@@ -17,17 +17,18 @@ import { PERSISTENCE_GRADER_VERSION } from './persistence-grader.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
 import {
-  analyseScenarioItems,
   auditScenarioSet,
   formatScenarioAuditReport,
 } from './diagnostics.js'
 import {
+  ClaimEligibilityError,
+  assertRunClaimEligible,
   assertScenarioSetHashMatches,
-  assertScenarioStratificationPublishable,
   validateRunRecord,
 } from './validate.js'
 import {
   computeScenarioSetHash,
+  computeScenarioSetHashBySchema,
   writeRunRecord,
   readRunRecord,
   newRunId,
@@ -48,7 +49,17 @@ import {
   readFrontierContractMetadata,
   verifyFrontierQuorum,
 } from './frontier.js'
-import type { Dataset, LLMJudgeExecutor, ModelResponse, Runner, RunnerOptions, RunRecord, Score } from './types.js'
+import type {
+  ClaimCard,
+  Dataset,
+  LLMJudgeExecutor,
+  ModelResponse,
+  Runner,
+  RunnerOptions,
+  RunRecord,
+  ScenarioSetFingerprint,
+  Score,
+} from './types.js'
 import type { ScenarioDiagnosticsPlugin } from './diagnostics.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -88,6 +99,13 @@ program
     'declared scenario-set hash to bind this run to; the harness refuses to ' +
       'score a corpus whose content hash does not match',
   )
+  .option('--hash-schema-version <version>', 'scenario-set hash schema version: v1 or v2', 'v1')
+  .option('--domain <id>', 'public domain id required for --hash-schema-version v2')
+  .option('--plugin-id <id>', 'public plugin id required for --hash-schema-version v2')
+  .option('--plugin-version <version>', 'public plugin version for --hash-schema-version v2')
+  .option('--plugin-uri <uri>', 'public plugin URI for --hash-schema-version v2')
+  .option('--implementation-fingerprint <spec>', 'implementation fingerprint id[@version][#digest]; repeatable', collectOption, [])
+  .option('--scorer-fingerprint <spec>', 'scorer fingerprint id[@version][#digest]; repeatable', collectOption, [])
   .option('--ci-iterations <n>', 'bootstrap iterations for confidence intervals (default 1000)', parseIntSafe, 1000)
   .option('--ci-level <p>', 'confidence level for the interval, e.g. 0.95 (default)', parseFloat, 0.95)
   .option('--ci-seed <n>', 'seed for the bootstrap RNG so intervals are reproducible (default 1)', parseIntSafe, 1)
@@ -102,9 +120,15 @@ program
 
     // Tier-1 #2: bind the run to a unique corpus. When a contract hash is
     // declared, refuse to score a corpus whose content hash does not match.
-    const scenarioSetHash = opts.contractHash
-      ? assertScenarioSetHashMatches(dataset, opts.contractHash)
-      : computeScenarioSetHash(dataset)
+    const scenarioSetIdentity = computeScenarioSetIdentity(dataset, opts)
+    if (opts.contractHash && scenarioSetIdentity.scenarioSetHash !== opts.contractHash) {
+      throw new Error(
+        `scenario-set hash mismatch: the corpus scored hashes to ` +
+          `"${scenarioSetIdentity.scenarioSetHash}" but the declared contract hash is ` +
+          `"${opts.contractHash}"`,
+      )
+    }
+    const scenarioSetHash = scenarioSetIdentity.scenarioSetHash
     const runnerIds = Array.isArray(opts.runner) ? opts.runner : [opts.runner]
     const runners = runnerIds.map((id) => resolveRunner(id))
     const log = createStderrLogger()
@@ -208,18 +232,19 @@ program
             '--no-ci to publish a composite as leaderboard-eligible',
         )
       }
-      const diagnostics = analyseScenarioItems(dataset, {
+      assertRunClaimEligible({
         id: runId,
         dataset: { name: dataset.name, version: dataset.version },
         scenarioSetHash,
+        scenarioSetHashSchemaVersion: scenarioSetIdentity.hashSchemaVersion,
+        ...(scenarioSetIdentity.metadata ? { scenarioSetHashMetadata: scenarioSetIdentity.metadata } : {}),
         runners: runners.map((r) => r.id),
         createdAt: at(),
         responses,
         scores,
         aggregates,
         meta: { harnessVersion: pkg.version },
-      })
-      assertScenarioStratificationPublishable(diagnostics.outcomeCoverage)
+      }, { dataset })
     }
 
     log.emit({
@@ -233,6 +258,8 @@ program
       id: runId,
       dataset: { name: dataset.name, version: dataset.version },
       scenarioSetHash,
+      scenarioSetHashSchemaVersion: scenarioSetIdentity.hashSchemaVersion,
+      ...(scenarioSetIdentity.metadata ? { scenarioSetHashMetadata: scenarioSetIdentity.metadata } : {}),
       runners: runners.map((r) => r.id),
       createdAt: new Date().toISOString(),
       responses,
@@ -358,7 +385,6 @@ program
 
     if (opts.dataset && result.valid && isRunRecordLike(raw)) {
       const dataset = await loadDataset(opts.dataset)
-      scenarioSetHash = computeScenarioSetHash(dataset)
       if (raw.dataset.name !== dataset.name) {
         errors.push(
           `RunRecord.dataset.name "${raw.dataset.name}" does not match dataset name "${dataset.name}"`,
@@ -369,15 +395,43 @@ program
           `RunRecord.dataset.version "${raw.dataset.version}" does not match dataset version "${dataset.version}"`,
         )
       }
-      if (!raw.scenarioSetHash) {
-        errors.push(
-          `RunRecord.scenarioSetHash is required when validating against a dataset contract; ` +
-            `expected "${scenarioSetHash}"`,
-        )
-      } else if (raw.scenarioSetHash !== scenarioSetHash) {
-        errors.push(
-          `RunRecord.scenarioSetHash "${raw.scenarioSetHash}" does not match dataset hash "${scenarioSetHash}"`,
-        )
+      if (raw.scenarioSetHashSchemaVersion === 'v2') {
+        scenarioSetHash = raw.scenarioSetHash ?? null
+        const metadata = raw.scenarioSetHashMetadata
+        if (!metadata || metadata.hashSchemaVersion !== 'v2') {
+          errors.push('RunRecord.scenarioSetHashMetadata v2 is required when validating a v2 run against a dataset')
+        } else {
+          if (metadata.dataset.name !== dataset.name) {
+            errors.push(
+              `RunRecord.scenarioSetHashMetadata.dataset.name "${metadata.dataset.name}" ` +
+                `does not match dataset name "${dataset.name}"`,
+            )
+          }
+          if (metadata.dataset.version !== dataset.version) {
+            errors.push(
+              `RunRecord.scenarioSetHashMetadata.dataset.version "${metadata.dataset.version}" ` +
+                `does not match dataset version "${dataset.version}"`,
+            )
+          }
+          if (metadata.scenarioCount !== dataset.scenarios.length) {
+            errors.push(
+              `RunRecord.scenarioSetHashMetadata.scenarioCount ${metadata.scenarioCount} ` +
+                `does not match dataset scenario count ${dataset.scenarios.length}`,
+            )
+          }
+        }
+      } else {
+        scenarioSetHash = computeScenarioSetHash(dataset)
+        if (!raw.scenarioSetHash) {
+          errors.push(
+            `RunRecord.scenarioSetHash is required when validating against a dataset contract; ` +
+              `expected "${scenarioSetHash}"`,
+          )
+        } else if (raw.scenarioSetHash !== scenarioSetHash) {
+          errors.push(
+            `RunRecord.scenarioSetHash "${raw.scenarioSetHash}" does not match dataset hash "${scenarioSetHash}"`,
+          )
+        }
       }
     }
 
@@ -399,17 +453,30 @@ program
   .description('print or enforce the dataset identity contract used by --contract-hash')
   .argument('<dataset>', 'path to dataset directory or bundle file')
   .option('--expect-hash <hash>', 'fail if the dataset scenario-set hash differs from this value')
+  .option('--hash-schema-version <version>', 'scenario-set hash schema version: v1 or v2', 'v1')
+  .option('--domain <id>', 'public domain id required for --hash-schema-version v2')
+  .option('--plugin-id <id>', 'public plugin id required for --hash-schema-version v2')
+  .option('--plugin-version <version>', 'public plugin version for --hash-schema-version v2')
+  .option('--plugin-uri <uri>', 'public plugin URI for --hash-schema-version v2')
+  .option('--implementation-fingerprint <spec>', 'implementation fingerprint id[@version][#digest]; repeatable', collectOption, [])
+  .option('--scorer-fingerprint <spec>', 'scorer fingerprint id[@version][#digest]; repeatable', collectOption, [])
   .option('--json', 'output contract as JSON')
   .action(async (datasetPath: string, opts: ContractOptions) => {
     const dataset = await loadDataset(datasetPath)
-    const scenarioSetHash = opts.expectHash
-      ? assertScenarioSetHashMatches(dataset, opts.expectHash)
-      : computeScenarioSetHash(dataset)
+    const identity = computeScenarioSetIdentity(dataset, opts)
+    if (opts.expectHash && identity.scenarioSetHash !== opts.expectHash) {
+      throw new Error(
+        `scenario-set hash mismatch: the corpus hashes to "${identity.scenarioSetHash}" ` +
+          `but --expect-hash is "${opts.expectHash}"`,
+      )
+    }
     const contract = {
       name: dataset.name,
       version: dataset.version,
       scenarioCount: dataset.scenarios.length,
-      scenarioSetHash,
+      scenarioSetHash: identity.scenarioSetHash,
+      hashSchemaVersion: identity.hashSchemaVersion,
+      ...(identity.metadata ? { scenarioSetHashMetadata: identity.metadata } : {}),
     }
 
     if (opts.json) {
@@ -418,6 +485,7 @@ program
       console.log(`${contract.name} v${contract.version}`)
       console.log(`scenarioCount=${contract.scenarioCount}`)
       console.log(`scenarioSetHash=${contract.scenarioSetHash}`)
+      console.log(`hashSchemaVersion=${contract.hashSchemaVersion}`)
     }
   })
 
@@ -435,13 +503,17 @@ program
     '--leaderboard-eligible',
     'enforce publish integrity gates before emitting leaderboard-eligible output',
   )
+  .option('--claim-card <path>', 'machine-readable claim card to enforce for leaderboard-eligible output')
   .action(async (runPath: string, opts: PublishOptions) => {
     const record = await readRunRecord(runPath)
     const dataset = opts.dataset ? await loadDataset(opts.dataset) : undefined
+    const claimCard = opts.claimCard
+      ? JSON.parse(await readFile(opts.claimCard, 'utf8')) as ClaimCard
+      : undefined
 
     assertPublishContract(record, { dataset, contractHash: opts.contractHash })
     if (opts.leaderboardEligible) {
-      assertLeaderboardEligiblePublish(record, dataset)
+      assertLeaderboardEligiblePublish(record, { dataset, claimCard })
     }
 
     const markdown = buildMarkdownReport(record)
@@ -661,6 +733,69 @@ function collectCsv(value: string, previous: string[]): string[] {
   return [...previous, ...value.split(',').map((item) => item.trim()).filter(Boolean)]
 }
 
+interface ScenarioSetIdentityCliOptions {
+  hashSchemaVersion?: string
+  domain?: string
+  pluginId?: string
+  pluginVersion?: string
+  pluginUri?: string
+  implementationFingerprint?: string[]
+  scorerFingerprint?: string[]
+}
+
+function computeScenarioSetIdentity(
+  dataset: Dataset,
+  opts: ScenarioSetIdentityCliOptions,
+): {
+  hashSchemaVersion: 'v1' | 'v2'
+  scenarioSetHash: string
+  metadata?: RunRecord['scenarioSetHashMetadata']
+} {
+  const identity = computeScenarioSetHashBySchema(dataset, {
+    hashSchemaVersion: opts.hashSchemaVersion ?? 'v1',
+    ...(opts.domain ? { domain: opts.domain } : {}),
+    ...(opts.pluginId
+      ? {
+          plugin: {
+            id: opts.pluginId,
+            ...(opts.pluginVersion ? { version: opts.pluginVersion } : {}),
+            ...(opts.pluginUri ? { uri: opts.pluginUri } : {}),
+          },
+        }
+      : {}),
+    implementationFingerprints: (opts.implementationFingerprint ?? []).map(parseFingerprintSpec),
+    scorerFingerprints: (opts.scorerFingerprint ?? []).map(parseFingerprintSpec),
+  })
+  if (identity.hashSchemaVersion === 'v2') {
+    return {
+      hashSchemaVersion: 'v2',
+      scenarioSetHash: identity.scenarioSetHash,
+      metadata: identity.metadata,
+    }
+  }
+  return {
+    hashSchemaVersion: 'v1',
+    scenarioSetHash: identity.scenarioSetHash,
+  }
+}
+
+function parseFingerprintSpec(value: string): ScenarioSetFingerprint {
+  const [withoutDigest, digest] = splitOnce(value.trim(), '#')
+  const [id, version] = splitOnce(withoutDigest, '@')
+  if (!id) throw new Error(`fingerprint spec "${value}" is missing an id`)
+  return {
+    id,
+    ...(version ? { version } : {}),
+    ...(digest ? { digest } : {}),
+  }
+}
+
+function splitOnce(value: string, separator: string): [string, string | undefined] {
+  const index = value.indexOf(separator)
+  if (index === -1) return [value, undefined]
+  return [value.slice(0, index), value.slice(index + separator.length)]
+}
+
 interface RunOptions {
   dataset: string
   runner: string | string[]
@@ -671,6 +806,13 @@ interface RunOptions {
   cacheJudges?: boolean
   cacheTtl?: number
   contractHash?: string
+  hashSchemaVersion: string
+  domain?: string
+  pluginId?: string
+  pluginVersion?: string
+  pluginUri?: string
+  implementationFingerprint: string[]
+  scorerFingerprint: string[]
   ciIterations: number
   ciLevel: number
   ciSeed: number
@@ -686,6 +828,13 @@ interface ValidateOptions {
 
 interface ContractOptions {
   expectHash?: string
+  hashSchemaVersion: string
+  domain?: string
+  pluginId?: string
+  pluginVersion?: string
+  pluginUri?: string
+  implementationFingerprint: string[]
+  scorerFingerprint: string[]
   json?: boolean
 }
 
@@ -716,6 +865,7 @@ interface PublishOptions {
   dataset?: string
   contractHash?: string
   leaderboardEligible?: boolean
+  claimCard?: string
 }
 
 interface ProofBuildOptions {
@@ -822,10 +972,6 @@ function assertPublishContract(
   const errors: string[] = []
 
   if (opts.dataset) {
-    const scenarioSetHash = opts.contractHash
-      ? assertScenarioSetHashMatches(opts.dataset, opts.contractHash)
-      : computeScenarioSetHash(opts.dataset)
-
     if (record.dataset.name !== opts.dataset.name) {
       errors.push(
         `RunRecord.dataset.name "${record.dataset.name}" does not match dataset name "${opts.dataset.name}"`,
@@ -836,7 +982,30 @@ function assertPublishContract(
         `RunRecord.dataset.version "${record.dataset.version}" does not match dataset version "${opts.dataset.version}"`,
       )
     }
-    errors.push(...scenarioSetHashErrors(record, scenarioSetHash, 'dataset hash'))
+    if (record.scenarioSetHashSchemaVersion === 'v2') {
+      const metadata = record.scenarioSetHashMetadata
+      if (!metadata || metadata.hashSchemaVersion !== 'v2') {
+        errors.push('RunRecord.scenarioSetHashMetadata v2 is required when validating v2 publish output')
+      } else {
+        if (metadata.dataset.name !== opts.dataset.name) {
+          errors.push('RunRecord.scenarioSetHashMetadata.dataset.name does not match supplied dataset')
+        }
+        if (metadata.dataset.version !== opts.dataset.version) {
+          errors.push('RunRecord.scenarioSetHashMetadata.dataset.version does not match supplied dataset')
+        }
+        if (metadata.scenarioCount !== opts.dataset.scenarios.length) {
+          errors.push('RunRecord.scenarioSetHashMetadata.scenarioCount does not match supplied dataset')
+        }
+      }
+      if (opts.contractHash) {
+        errors.push(...scenarioSetHashErrors(record, opts.contractHash, 'declared contract hash'))
+      }
+    } else {
+      const scenarioSetHash = opts.contractHash
+        ? assertScenarioSetHashMatches(opts.dataset, opts.contractHash)
+        : computeScenarioSetHash(opts.dataset)
+      errors.push(...scenarioSetHashErrors(record, scenarioSetHash, 'dataset hash'))
+    }
   } else if (opts.contractHash) {
     errors.push(...scenarioSetHashErrors(record, opts.contractHash, 'declared contract hash'))
   }
@@ -882,54 +1051,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function assertLeaderboardEligiblePublish(
   record: RunRecord,
-  dataset: Dataset | undefined,
+  opts: { dataset?: Dataset, claimCard?: ClaimCard },
 ): void {
-  const errors = aggregateConfidenceErrors(record)
-  if (errors.length > 0) {
-    throw new Error(
-      `leaderboard-eligible publish gate failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`,
-    )
-  }
-
-  if (!dataset) {
+  if (!opts.dataset) {
     throw new Error(
       'leaderboard-eligible publish requires --dataset so outcome-type stratification can be verified',
     )
   }
-
-  const diagnostics = analyseScenarioItems(dataset, record)
-  assertScenarioStratificationPublishable(diagnostics.outcomeCoverage)
-}
-
-function aggregateConfidenceErrors(record: RunRecord): string[] {
-  const errors: string[] = []
-
-  if (record.aggregates.length === 0) {
-    errors.push('RunRecord.aggregates must contain at least one aggregate with confidence intervals')
-    return errors
+  try {
+    assertRunClaimEligible(record, opts)
+  } catch (err) {
+    if (err instanceof ClaimEligibilityError) throw new Error(err.message)
+    throw err
   }
-
-  for (const aggregateRecord of record.aggregates) {
-    if (!aggregateRecord.statisticalClaims) {
-      errors.push(
-        `aggregate for runner "${aggregateRecord.runnerId}" is missing statisticalClaims; ` +
-          'leaderboard-eligible publish requires bootstrap confidence intervals',
-      )
-    }
-
-    const axes = Object.entries(aggregateRecord.axes)
-    if (axes.length === 0) {
-      errors.push(`aggregate for runner "${aggregateRecord.runnerId}" has no axes`)
-    }
-
-    for (const [axis, axisAggregate] of axes) {
-      if (!axisAggregate.confidenceInterval) {
-        errors.push(
-          `aggregate for runner "${aggregateRecord.runnerId}" axis "${axis}" is missing a confidence interval`,
-        )
-      }
-    }
-  }
-
-  return errors
 }

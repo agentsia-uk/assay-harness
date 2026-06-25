@@ -8,7 +8,7 @@ import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 
 import { computeScenarioSetHash } from '../src/serialiser.js'
-import type { Dataset, ModelAggregate, RunRecord } from '../src/types.js'
+import type { ClaimCard, Dataset, ModelAggregate, RunRecord } from '../src/types.js'
 
 const execFileAsync = promisify(execFile)
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -24,7 +24,7 @@ function scenario(id: string, outcomeType: string) {
     id,
     axes: ['quality'],
     input: { messages: [{ role: 'user' as const, content: `classify ${id}` }] },
-    rubric: { kind: 'programmatic' as const, checker: 'non-empty' },
+    rubric: { kind: 'programmatic' as const, checker: 'keyword', params: { expected: ['ok'] } },
     meta: { outcomeType },
   }
 }
@@ -102,6 +102,20 @@ function runRecord(ds: Dataset, withConfidenceIntervals = true): RunRecord {
     })),
     aggregates: [aggregate(withConfidenceIntervals)],
     meta: { harnessVersion: '0.4.0' },
+  }
+}
+
+function claimCard(record: RunRecord, overrides: Partial<ClaimCard> = {}): ClaimCard {
+  return {
+    schemaVersion: 'assay.claim-card.v1',
+    dataset: record.dataset,
+    scenarioSetHash: record.scenarioSetHash!,
+    hashSchemaVersion: record.scenarioSetHashSchemaVersion ?? 'v1',
+    status: 'allowed',
+    leaderboardClaimsAllowed: true,
+    generatedAt: '2026-06-20T00:00:00.000Z',
+    expiresAt: '2026-07-20T00:00:00.000Z',
+    ...overrides,
   }
 }
 
@@ -224,9 +238,57 @@ describe('cli publish gates', () => {
       await expect(
         runCli(['publish', runPath, '--dataset', datasetPath, '--leaderboard-eligible']),
       ).rejects.toMatchObject({
-        stderr: expect.stringContaining('scenario stratification is not publishable'),
+        stderr: expect.stringContaining('fn-guard'),
         stdout: '',
       })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('enforces a machine-readable claim card when publishing leaderboard-eligible output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'assay-publish-'))
+    try {
+      const ds = dataset()
+      const record = runRecord(ds)
+      const runPath = join(dir, 'run.json')
+      const datasetPath = join(dir, 'dataset.json')
+      const blockedClaimPath = join(dir, 'blocked-claim.json')
+      const allowedClaimPath = join(dir, 'allowed-claim.json')
+      await writeJson(runPath, record)
+      await writeJson(datasetPath, ds)
+      await writeJson(blockedClaimPath, claimCard(record, {
+        status: 'blocked',
+        leaderboardClaimsAllowed: false,
+        blocker: 'proof freshness expired',
+      }))
+      await writeJson(allowedClaimPath, claimCard(record))
+
+      await expect(
+        runCli([
+          'publish',
+          runPath,
+          '--dataset',
+          datasetPath,
+          '--leaderboard-eligible',
+          '--claim-card',
+          blockedClaimPath,
+        ]),
+      ).rejects.toMatchObject({
+        stderr: expect.stringContaining('ClaimCard blocks leaderboard claims'),
+        stdout: '',
+      })
+
+      const { stdout } = await runCli([
+        'publish',
+        runPath,
+        '--dataset',
+        datasetPath,
+        '--leaderboard-eligible',
+        '--claim-card',
+        allowedClaimPath,
+      ])
+      expect(stdout).toContain('# Assay run publish-run-001')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

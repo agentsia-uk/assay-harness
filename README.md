@@ -293,9 +293,37 @@ slice labels are grouped under `__unsliced__` so callers can distinguish absent
 metadata from a real slice. `assay compare` includes reliability deltas and
 slice composite deltas when both RunRecords contain those aggregate fields.
 
+Leaderboard-eligible publication can also enforce a machine-readable claim
+card. A claim card binds the quoted run to the dataset identity, hash schema,
+claim state, proof freshness, and optional provider quorum cells. The generic
+harness only validates that card; benchmark-specific claim text and release
+facts remain owned by the benchmark producer.
+
 ```bash
 pnpm assay compare runs/baseline.json runs/candidate.json
 pnpm assay compare runs/baseline.json runs/candidate.json --json
+pnpm assay publish runs/candidate.json \
+  --dataset examples/scenarios \
+  --leaderboard-eligible \
+  --claim-card artifacts/claim-card.json
+```
+
+New producers that need schema-v2 identity can opt in at run or contract time:
+
+```bash
+pnpm assay run \
+  --dataset examples/scenarios \
+  --runner stub:echo \
+  --hash-schema-version v2 \
+  --domain example \
+  --plugin-id assay.examples \
+  --scorer-fingerprint programmatic@1
+
+pnpm assay contract examples/scenarios \
+  --hash-schema-version v2 \
+  --domain example \
+  --plugin-id assay.examples \
+  --json
 ```
 
 ## Scenario Diagnostics
