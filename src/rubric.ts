@@ -2,6 +2,7 @@ import type {
   HumanAnnotation,
   HumanAnnotationValidation,
   LLMJudgeExecutor,
+  LLMJudgeResult,
   MechanismRubric,
   ModelResponse,
   PreferencePair,
@@ -206,6 +207,11 @@ function applyRubric(
             `${calibration.observedAgreement} < ${calibration.minimumAgreement}`,
         )
       }
+      if (rubric.claimPolicy === 'benchmark-eligible' && !rubric.biasChecks?.length) {
+        throw new Error(
+          'rubric: benchmark-eligible llm-judge bias check evidence is required',
+        )
+      }
       const failedBias = rubric.biasChecks?.find((check) => !check.passed)
       if (failedBias) {
         throw new Error(`rubric: llm-judge bias check failed: ${failedBias.kind}`)
@@ -218,12 +224,15 @@ function applyRubric(
         scenario,
         rubric,
         renderedPrompt,
-      })).then((result) => ({
-        value: clampScore(result.value),
-        ...(result.rationale ? { rationale: result.rationale } : {}),
-        ...(result.provenance ? { judgeProvenance: result.provenance } : {}),
-        claimStatus: rubric.claimPolicy ?? 'analysis-only',
-      }))
+      })).then((result) => {
+        validateJudgeResult(result, calibration.promptHash)
+        return {
+          value: clampScore(result.value),
+          ...(result.rationale ? { rationale: result.rationale } : {}),
+          judgeProvenance: result.provenance,
+          claimStatus: rubric.claimPolicy ?? 'analysis-only',
+        }
+      })
     }
     case 'human':
       throw new Error(
@@ -266,7 +275,7 @@ export function validateHumanAnnotations(
   annotations: HumanAnnotation[],
 ): HumanAnnotationValidation {
   const errors: string[] = []
-  const labelsByItem = new Map<string, Map<string, Set<string>>>()
+  const annotationsByResponse = new Map<string, HumanAnnotation[]>()
 
   for (const [index, annotation] of annotations.entries()) {
     const prefix = `annotation[${index}]`
@@ -275,26 +284,54 @@ export function validateHumanAnnotations(
     if (!annotation.responseId) errors.push(`${prefix}: missing responseId`)
     if (!annotation.reviewer) errors.push(`${prefix}: missing reviewer`)
     if (!annotation.rubricVersion) errors.push(`${prefix}: missing rubricVersion`)
-    if (Number.isNaN(Date.parse(annotation.annotatedAt))) {
+    if (!isHumanLabel(annotation.label)) {
+      errors.push(`${prefix}: label must be pass, fail, tie, or invalid`)
+    }
+    if (!isHumanStatus(annotation.status)) {
+      errors.push(`${prefix}: status must be pending, agreed, conflicted, adjudicated, or rejected`)
+    }
+    if (typeof annotation.annotatedAt !== 'string' || Number.isNaN(Date.parse(annotation.annotatedAt))) {
       errors.push(`${prefix}: annotatedAt must be an ISO timestamp`)
     }
-    if (annotation.score < 0 || annotation.score > 1) {
+    if (typeof annotation.score !== 'number' || !Number.isFinite(annotation.score) || annotation.score < 0 || annotation.score > 1) {
       errors.push(`${prefix}: score must be normalised 0..1`)
     }
+    if (annotation.status === 'adjudicated') {
+      if (!annotation.adjudicator) {
+        errors.push(`${prefix}: adjudicated annotations require adjudicator`)
+      }
+      if (!annotation.adjudicatedAt || Number.isNaN(Date.parse(annotation.adjudicatedAt))) {
+        errors.push(`${prefix}: adjudicated annotations require ISO adjudicatedAt`)
+      }
+    }
 
-    const item = labelsByItem.get(annotation.itemId) ?? new Map<string, Set<string>>()
-    const labels = item.get(annotation.responseId) ?? new Set<string>()
-    labels.add(annotation.label)
-    item.set(annotation.responseId, labels)
-    labelsByItem.set(annotation.itemId, item)
+    const key = annotationResponseKey(annotation.itemId, annotation.responseId)
+    const bucket = annotationsByResponse.get(key) ?? []
+    bucket.push(annotation)
+    annotationsByResponse.set(key, bucket)
   }
 
   const conflicts: HumanAnnotationValidation['conflicts'] = []
-  for (const [itemId, byResponse] of labelsByItem) {
-    for (const [responseId, labels] of byResponse) {
-      if (labels.size > 1) {
-        conflicts.push({ itemId, responseId, labels: [...labels].sort() })
-      }
+  for (const annotationsForResponse of annotationsByResponse.values()) {
+    const first = annotationsForResponse[0]
+    if (!first) continue
+    const adjudicated = annotationsForResponse.filter((annotation) => annotation.status === 'adjudicated')
+    if (annotationsForResponse.some((annotation) => annotation.status === 'conflicted') && adjudicated.length === 0) {
+      errors.push(
+        `annotation group itemId=${first.itemId} responseId=${first.responseId}: ` +
+          'conflicted status requires an adjudicated annotation',
+      )
+    }
+    const terminal = adjudicated.length > 0
+      ? adjudicated
+      : annotationsForResponse.filter((annotation) => annotation.status !== 'rejected')
+    const labels = new Set(terminal.map((annotation) => annotation.label))
+    if (labels.size > 1) {
+      conflicts.push({
+        itemId: first.itemId,
+        responseId: first.responseId,
+        labels: [...labels].sort(),
+      })
     }
   }
 
@@ -305,8 +342,7 @@ export function annotationsToPreferencePairs(
   annotations: HumanAnnotation[],
 ): PreferencePair[] {
   const byItem = new Map<string, HumanAnnotation[]>()
-  for (const annotation of annotations) {
-    if (!['agreed', 'adjudicated'].includes(annotation.status)) continue
+  for (const annotation of terminalHumanAnnotations(annotations)) {
     const bucket = byItem.get(annotation.itemId) ?? []
     bucket.push(annotation)
     byItem.set(annotation.itemId, bucket)
@@ -331,6 +367,81 @@ export function annotationsToPreferencePairs(
     })
   }
   return pairs
+}
+
+function validateJudgeResult(result: LLMJudgeResult, expectedPromptHash: string): void {
+  if (!result.provenance) {
+    throw new Error('rubric: llm-judge provenance is required')
+  }
+  const provenance = result.provenance
+  if (provenance.promptHash !== expectedPromptHash) {
+    throw new Error(
+      `rubric: llm-judge provenance prompt hash "${provenance.promptHash}" ` +
+        `does not match calibration prompt hash "${expectedPromptHash}"`,
+    )
+  }
+  if (!provenance.provider) throw new Error('rubric: llm-judge provenance provider is required')
+  if (!provenance.model) throw new Error('rubric: llm-judge provenance model is required')
+  if (!provenance.rubricVersion) {
+    throw new Error('rubric: llm-judge provenance rubricVersion is required')
+  }
+  if (!provenance.parserVersion) {
+    throw new Error('rubric: llm-judge provenance parserVersion is required')
+  }
+  if (!provenance.judgedAt || Number.isNaN(Date.parse(provenance.judgedAt))) {
+    throw new Error('rubric: llm-judge provenance judgedAt must be an ISO timestamp')
+  }
+}
+
+function terminalHumanAnnotations(annotations: HumanAnnotation[]): HumanAnnotation[] {
+  const byResponse = new Map<string, HumanAnnotation[]>()
+  for (const annotation of annotations) {
+    if (!['agreed', 'adjudicated'].includes(annotation.status)) continue
+    const key = annotationResponseKey(annotation.itemId, annotation.responseId)
+    const bucket = byResponse.get(key) ?? []
+    bucket.push(annotation)
+    byResponse.set(key, bucket)
+  }
+
+  const terminal: HumanAnnotation[] = []
+  for (const annotationsForResponse of byResponse.values()) {
+    const adjudicated = annotationsForResponse
+      .filter((annotation) => annotation.status === 'adjudicated')
+      .sort((a, b) => annotationTime(b) - annotationTime(a))
+    if (adjudicated[0]) {
+      terminal.push(adjudicated[0])
+      continue
+    }
+    const agreed = annotationsForResponse
+      .filter((annotation) => annotation.status === 'agreed')
+      .sort((a, b) => b.score - a.score)
+    if (agreed[0]) terminal.push(agreed[0])
+  }
+  return terminal
+}
+
+function annotationTime(annotation: HumanAnnotation): number {
+  const value = annotation.adjudicatedAt ?? annotation.annotatedAt
+  const time = Date.parse(value)
+  return Number.isNaN(time) ? 0 : time
+}
+
+function annotationResponseKey(itemId: string, responseId: string): string {
+  return `${itemId}\x00${responseId}`
+}
+
+function isHumanLabel(value: unknown): value is HumanAnnotation['label'] {
+  return value === 'pass' || value === 'fail' || value === 'tie' || value === 'invalid'
+}
+
+function isHumanStatus(value: unknown): value is HumanAnnotation['status'] {
+  return (
+    value === 'pending' ||
+    value === 'agreed' ||
+    value === 'conflicted' ||
+    value === 'adjudicated' ||
+    value === 'rejected'
+  )
 }
 
 function clampScore(value: number): number {

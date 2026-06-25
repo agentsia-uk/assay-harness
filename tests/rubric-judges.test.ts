@@ -89,6 +89,63 @@ describe('calibrated rubric executors', () => {
       .toThrow(/calibration/)
   })
 
+  it('blocks benchmark-eligible llm-judge scoring without bias evidence', () => {
+    const scenario: Scenario = {
+      id: 'scenario-1',
+      axes: ['judgement'],
+      input: { messages: [{ role: 'user', content: 'Should this bid pass?' }] },
+      rubric: {
+        kind: 'llm-judge',
+        judge: 'stub:judge',
+        prompt: 'Score {response}',
+        claimPolicy: 'benchmark-eligible',
+        calibration: {
+          setId: 'calibration/adtech-v1',
+          minimumAgreement: 0.8,
+          observedAgreement: 0.95,
+          promptHash: 'sha256:abc',
+        },
+      },
+    }
+
+    expect(() => score(response, scenario, { llmJudge: async () => ({ value: 1 }) }))
+      .toThrow(/bias check evidence/)
+  })
+
+  it('requires judge provenance to match the calibrated prompt hash', async () => {
+    const scenario: Scenario = {
+      id: 'scenario-1',
+      axes: ['judgement'],
+      input: { messages: [{ role: 'user', content: 'Should this bid pass?' }] },
+      rubric: {
+        kind: 'llm-judge',
+        judge: 'stub:judge',
+        prompt: 'Score {response}',
+        calibration: {
+          setId: 'calibration/adtech-v1',
+          minimumAgreement: 0.8,
+          observedAgreement: 0.95,
+          promptHash: 'sha256:abc',
+        },
+        biasChecks: [{ kind: 'position', passed: true }],
+      },
+    }
+
+    await expect(score(response, scenario, {
+      llmJudge: async () => ({
+        value: 1,
+        provenance: {
+          provider: 'stub',
+          model: 'judge',
+          promptHash: 'sha256:wrong',
+          rubricVersion: 'v1',
+          parserVersion: 'parser-v1',
+          judgedAt: '2026-05-27T00:00:00.000Z',
+        },
+      }),
+    })).rejects.toThrow(/prompt hash/)
+  })
+
   it('validates human annotations, adjudicates conflicts, and exports preference pairs', () => {
     const annotations: HumanAnnotation[] = [
       {
@@ -119,6 +176,72 @@ describe('calibrated rubric executors', () => {
     expect(report.valid).toBe(true)
     expect(report.conflicts).toHaveLength(0)
 
+    expect(annotationsToPreferencePairs(annotations)).toEqual([
+      {
+        itemId: 'item-1',
+        scenarioHash: 'scenario:1',
+        chosenResponseId: 'a',
+        rejectedResponseId: 'b',
+        source: 'human-annotation',
+        rubricVersion: 'rubric-v1',
+      },
+    ])
+  })
+
+  it('treats adjudicated annotations as the terminal label for a conflicted response', () => {
+    const annotations: HumanAnnotation[] = [
+      {
+        itemId: 'item-1',
+        scenarioHash: 'scenario:1',
+        responseId: 'a',
+        label: 'pass',
+        score: 1,
+        reviewer: 'reviewer-a',
+        rubricVersion: 'rubric-v1',
+        annotatedAt: '2026-05-27T00:00:00.000Z',
+        status: 'agreed',
+      },
+      {
+        itemId: 'item-1',
+        scenarioHash: 'scenario:1',
+        responseId: 'a',
+        label: 'fail',
+        score: 0,
+        reviewer: 'reviewer-b',
+        rubricVersion: 'rubric-v1',
+        annotatedAt: '2026-05-27T00:00:01.000Z',
+        status: 'conflicted',
+      },
+      {
+        itemId: 'item-1',
+        scenarioHash: 'scenario:1',
+        responseId: 'a',
+        label: 'pass',
+        score: 0.95,
+        reviewer: 'reviewer-c',
+        rubricVersion: 'rubric-v1',
+        annotatedAt: '2026-05-27T00:00:02.000Z',
+        status: 'adjudicated',
+        adjudicator: 'lead-reviewer',
+        adjudicatedAt: '2026-05-27T00:10:00.000Z',
+      },
+      {
+        itemId: 'item-1',
+        scenarioHash: 'scenario:1',
+        responseId: 'b',
+        label: 'fail',
+        score: 0,
+        reviewer: 'reviewer-a',
+        rubricVersion: 'rubric-v1',
+        annotatedAt: '2026-05-27T00:00:03.000Z',
+        status: 'agreed',
+      },
+    ]
+
+    const report = validateHumanAnnotations(annotations)
+
+    expect(report.valid).toBe(true)
+    expect(report.conflicts).toHaveLength(0)
     expect(annotationsToPreferencePairs(annotations)).toEqual([
       {
         itemId: 'item-1',

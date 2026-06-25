@@ -346,6 +346,11 @@ function selfTestChecks(
   )
   const canonicalOnce = checksumObject(manifestCore)
   const canonicalTwice = checksumObject(JSON.parse(canonicalJson(manifestCore)) as unknown)
+  const analysisOnlyScores = options.runRecord.scores.filter(
+    (score) => score.claimStatus === 'analysis-only',
+  )
+  const analysisOnlyClaimBlocked =
+    manifestCore.claimGate.leaderboardClaimsAllowed && analysisOnlyScores.length > 0
 
   return [
     {
@@ -373,6 +378,15 @@ function selfTestChecks(
       detail: canonicalOnce === canonicalTwice
         ? 'Canonical proof payload is stable across parse/stringify'
         : 'Canonical proof payload changed after parse/stringify',
+    },
+    {
+      name: 'analysis-only-claim-gate',
+      status: analysisOnlyClaimBlocked ? 'failed' : 'passed',
+      detail: analysisOnlyClaimBlocked
+        ? `${analysisOnlyScores.length} analysis-only score(s) cannot support claim-allowed proof material`
+        : manifestCore.claimGate.leaderboardClaimsAllowed
+          ? 'No analysis-only scores are present in claim-allowed proof material'
+          : 'Claim gate is blocked or unknown; analysis-only scores are non-claim material',
     },
   ]
 }

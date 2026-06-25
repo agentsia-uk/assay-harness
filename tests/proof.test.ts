@@ -250,6 +250,23 @@ describe('proof bundle manifest', () => {
     expect(manifest.reproducibilitySelfTest.status).toBe('passed')
   })
 
+  it('fails the proof self-test when claim-allowed material contains analysis-only scores', () => {
+    const ds = dataset()
+    const record = runRecord(ds)
+    record.scores[0]!.claimStatus = 'analysis-only'
+    const manifest = buildProofBundleManifest({
+      runRecord: record,
+      releaseContract: releaseContract(record.scenarioSetHash!, 'allowed'),
+      dataset: ds,
+    })
+
+    expect(manifest.claimGate.leaderboardClaimsAllowed).toBe(true)
+    expect(manifest.reproducibilitySelfTest.status).toBe('failed')
+    expect(
+      manifest.reproducibilitySelfTest.checks.map((check) => check.detail).join('\n'),
+    ).toContain('analysis-only')
+  })
+
   it('builds a proof manifest through the CLI', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
     try {
