@@ -19,6 +19,7 @@ import { annotationsToPreferencePairs, score, validateHumanAnnotations } from '.
 import { aggregate } from './aggregator.js'
 import {
   auditScenarioSet,
+  createGenericAdversarialMutationPlugin,
   formatScenarioAuditReport,
 } from './diagnostics.js'
 import {
@@ -80,7 +81,11 @@ import type {
   ScenarioSetFingerprint,
   Score,
 } from './types.js'
-import type { ScenarioDiagnosticsPlugin } from './diagnostics.js'
+import type {
+  ReleaseDiagnosticArtifact,
+  ReleaseDiagnosticDocument,
+  ScenarioDiagnosticsPlugin,
+} from './diagnostics.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgPath = resolve(here, '..', 'package.json')
@@ -427,16 +432,26 @@ program
   .option('--leakage-threshold <n>', 'containment threshold for training prompt leakage checks', parseFloat)
   .option('--near-duplicate-ngram-size <n>', 'token n-gram size for near-duplicate prompt checks', parseIntSafe)
   .option('--near-duplicate-threshold <n>', 'containment threshold for near-duplicate prompt checks', parseFloat)
+  .option('--release-doc <path>', 'release markdown/README file to compare against machine-readable artifacts; repeatable', collectOption, [])
+  .option('--release-artifact <path>', 'machine-readable JSON artifact with release counts, hash, quorum, or claim state; repeatable', collectOption, [])
+  .option('--generic-adversarial-probes', 'generate corpus-agnostic adversarial mutation probes')
   .option('--plugin <path>', 'diagnostics plugin module path; repeatable', collectOption, [])
+  .option('--claim-block-doc-drift', 'mark artifact/doc drift findings as claim-blocking')
+  .option('--claim-block-rubric-ambiguity', 'mark rubric ambiguity findings as claim-blocking')
   .option('--json', 'output result as JSON')
   .option('--fail-on-claim-blocking', 'exit non-zero when claim-blocking findings are present')
   .action(async (datasetPath: string, opts: DiagnosticsOptions) => {
-    const [dataset, record, trainingPrompts, plugins] = await Promise.all([
+    const [dataset, record, trainingPrompts, loadedPlugins, releaseDocuments, releaseArtifacts] = await Promise.all([
       loadDataset(datasetPath),
       opts.run ? readRunRecord(opts.run) : Promise.resolve(undefined),
       opts.trainingPrompts ? readTrainingPrompts(opts.trainingPrompts) : Promise.resolve(undefined),
       loadDiagnosticPlugins(opts.plugin ?? []),
+      readReleaseDocuments(opts.releaseDoc ?? []),
+      readReleaseArtifacts(opts.releaseArtifact ?? []),
     ])
+    const plugins = opts.genericAdversarialProbes
+      ? [...loadedPlugins, createGenericAdversarialMutationPlugin()]
+      : loadedPlugins
     const report = auditScenarioSet(dataset, {
       ...(record ? { record } : {}),
       ...(trainingPrompts ? { trainingPrompts } : {}),
@@ -451,6 +466,10 @@ program
       ...(opts.requiredOutcome.length > 0 ? { requiredOutcomeTypes: opts.requiredOutcome } : {}),
       ...(opts.requiredLane.length > 0 ? { requiredLanes: opts.requiredLane } : {}),
       ...(opts.laneKey.length > 0 ? { laneMetadataKeys: opts.laneKey } : {}),
+      ...(releaseDocuments.length > 0 ? { releaseDocuments } : {}),
+      ...(releaseArtifacts.length > 0 ? { releaseArtifacts } : {}),
+      ...(opts.claimBlockDocDrift ? { releaseDocDriftSeverity: 'claim-blocking' as const } : {}),
+      ...(opts.claimBlockRubricAmbiguity ? { rubricAmbiguitySeverity: 'claim-blocking' as const } : {}),
       ...(plugins.length > 0 ? { plugins } : {}),
     })
 
@@ -1002,7 +1021,12 @@ interface DiagnosticsOptions {
   leakageThreshold?: number
   nearDuplicateNgramSize?: number
   nearDuplicateThreshold?: number
+  releaseDoc?: string[]
+  releaseArtifact?: string[]
+  genericAdversarialProbes?: boolean
   plugin?: string[]
+  claimBlockDocDrift?: boolean
+  claimBlockRubricAmbiguity?: boolean
   json?: boolean
   failOnClaimBlocking?: boolean
 }
@@ -1124,6 +1148,20 @@ async function readTrainingPrompts(path: string): Promise<string[]> {
     .filter(Boolean)
 }
 
+async function readReleaseDocuments(paths: string[]): Promise<ReleaseDiagnosticDocument[]> {
+  return Promise.all(paths.map(async (path) => ({
+    path,
+    content: await readFile(path, 'utf8'),
+  })))
+}
+
+async function readReleaseArtifacts(paths: string[]): Promise<ReleaseDiagnosticArtifact[]> {
+  return Promise.all(paths.map(async (path) => ({
+    path,
+    data: JSON.parse(await readFile(path, 'utf8')) as unknown,
+  })))
+}
+
 async function loadDiagnosticPlugins(paths: string[]): Promise<ScenarioDiagnosticsPlugin[]> {
   const plugins: ScenarioDiagnosticsPlugin[] = []
   for (const pluginPath of paths) {
@@ -1142,7 +1180,8 @@ function normaliseDiagnosticPlugins(value: unknown, source: string): ScenarioDia
   return candidates.map((candidate) => {
     if (!isDiagnosticPlugin(candidate)) {
       throw new Error(
-        `diagnostics plugin "${source}" must export a plugin object with string id and run(context)`,
+        `diagnostics plugin "${source}" must export a plugin object with string id and a run(context) ` +
+          `or generateAdversarialProbes(context) function`,
       )
     }
     return candidate
@@ -1153,7 +1192,7 @@ function isDiagnosticPlugin(value: unknown): value is ScenarioDiagnosticsPlugin 
   return (
     isPlainObject(value) &&
     typeof value['id'] === 'string' &&
-    typeof value['run'] === 'function'
+    (typeof value['run'] === 'function' || typeof value['generateAdversarialProbes'] === 'function')
   )
 }
 

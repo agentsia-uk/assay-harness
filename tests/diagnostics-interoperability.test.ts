@@ -10,6 +10,7 @@ import {
   analyseScenarioItems,
   auditScenarioSet,
   compareScenarioSets,
+  createGenericAdversarialMutationPlugin,
   createMetadataFreshnessPlugin,
   formatScenarioAuditReport,
 } from '../src/diagnostics.js'
@@ -265,6 +266,283 @@ describe('scenario diagnostics and interoperability exports', () => {
     expect(readable).toContain('Scenario diagnostics: adtech-public-diagnostics-fixture v1.0.0')
     expect(readable).toContain('[claim-blocking] duplicate-prompt')
     expect(readable).toContain('[advisory] near-duplicate-prompt')
+  })
+
+  it('flags stale release counts, hashes, quorum, and claim state in docs against artifacts', () => {
+    const expectedHash = 'a'.repeat(64)
+    const report = auditScenarioSet(dataset, {
+      releaseDocDriftSeverity: 'claim-blocking',
+      releaseArtifacts: [
+        {
+          id: 'release-contract.json',
+          data: {
+            scenarioSetHash: expectedHash,
+            scenarioSetHashMetadata: { scenarioCount: 2 },
+            quorum: { required: 2, total: 3 },
+            claimGate: { status: 'allowed' },
+          },
+        },
+      ],
+      releaseDocuments: [
+        {
+          id: 'README.md',
+          content:
+            'The release has 3 scenarios, scenario-set hash ' +
+            `${'b'.repeat(64)}, frontier quorum 1/3, and claim gate blocked.`,
+        },
+      ],
+    })
+
+    const driftFindings = report.findings.filter((finding) => finding.kind === 'artifact-doc-drift')
+    expect(driftFindings.map((finding) => finding.data?.['field'])).toEqual(
+      expect.arrayContaining(['scenarioCount', 'scenarioSetHash', 'quorum', 'claimState']),
+    )
+    expect(report.summary.claimBlockingKinds).toContain('artifact-doc-drift')
+  })
+
+  it('does not parse numeric hash prefixes as scenario counts in release docs', () => {
+    const expectedHash = `9${'a'.repeat(63)}`
+    const report = auditScenarioSet(dataset, {
+      releaseDocDriftSeverity: 'claim-blocking',
+      releaseArtifacts: [
+        {
+          id: 'release-contract.json',
+          data: {
+            scenarioSetHash: expectedHash,
+            scenarioSetHashMetadata: { scenarioCount: 2 },
+          },
+        },
+      ],
+      releaseDocuments: [
+        {
+          id: 'README.md',
+          content: `The release pins scenario-set hash ${expectedHash}.`,
+        },
+      ],
+    })
+
+    const driftFindings = report.findings.filter((finding) => finding.kind === 'artifact-doc-drift')
+    expect(driftFindings.map((finding) => finding.data?.['field'])).not.toContain('scenarioCount')
+  })
+
+  it('checks top-level claim-card status during release doc drift audits', () => {
+    const report = auditScenarioSet(dataset, {
+      releaseDocDriftSeverity: 'claim-blocking',
+      releaseArtifacts: [
+        {
+          id: 'claim-card.json',
+          data: {
+            schemaVersion: 'assay.claim-card.v1',
+            status: 'allowed',
+          },
+        },
+      ],
+      releaseDocuments: [
+        {
+          id: 'README.md',
+          content: 'The claim gate is blocked.',
+        },
+      ],
+    })
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'artifact-doc-drift',
+      data: expect.objectContaining({
+        field: 'claimState',
+        expected: 'allowed',
+        actual: 'blocked',
+      }),
+    }))
+  })
+
+  it('flags conflicting rubric gates as claim-blocking diagnostics', () => {
+    const conflictingDataset: Dataset = {
+      ...dataset,
+      scenarios: [
+        {
+          id: 'conflict',
+          axes: ['quality'],
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content: 'Explain whether the supplied evidence supports the requested decision.',
+              },
+            ],
+          },
+          rubric: {
+            kind: 'programmatic',
+            checker: 'keyword',
+            params: {
+              expected: ['cite the source'],
+              forbidden: ['cite the source'],
+            },
+          },
+          meta: { outcomeType: 'tp' },
+        },
+      ],
+    }
+
+    const report = auditScenarioSet(conflictingDataset)
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'conflicting-rubric-gates',
+      severity: 'claim-blocking',
+      scenarioIds: ['conflict'],
+      detail: expect.stringContaining('requires and forbids'),
+    }))
+  })
+
+  it('flags weak and ambiguous rubrics with configurable claim impact', () => {
+    const weakAndAmbiguousDataset: Dataset = {
+      ...dataset,
+      scenarios: [
+        {
+          id: 'weak',
+          axes: ['quality'],
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content: 'Evaluate the evidence and provide the supported conclusion.',
+              },
+            ],
+          },
+          rubric: { kind: 'programmatic', checker: 'non-empty' },
+          meta: { outcomeType: 'tp' },
+        },
+        {
+          id: 'ambiguous',
+          axes: ['quality'],
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content: 'Assess the evidence and choose the most justified action.',
+              },
+            ],
+          },
+          rubric: {
+            kind: 'mechanism',
+            quantitative: [],
+            disambiguation: [],
+            actions: [],
+            bingoTokens: [],
+          },
+          meta: { outcomeType: 'tn' },
+        },
+      ],
+    }
+
+    const report = auditScenarioSet(weakAndAmbiguousDataset, {
+      rubricAmbiguitySeverity: 'claim-blocking',
+    })
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'weak-rubric',
+      severity: 'claim-blocking',
+      scenarioIds: ['weak'],
+    }))
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'rubric-ambiguity',
+      severity: 'claim-blocking',
+      scenarioIds: ['ambiguous'],
+    }))
+  })
+
+  it('generates corpus-agnostic adversarial mutation probes through the plugin API', () => {
+    const report = auditScenarioSet(dataset, {
+      plugins: [createGenericAdversarialMutationPlugin({ maxProbesPerScenario: 2 })],
+    })
+
+    expect(report.adversarial.probes).toHaveLength(4)
+    expect(report.adversarial.probes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scenarioId: 's1',
+        mutationKind: 'instruction-override',
+        prompt: expect.stringContaining('A unique prompt'),
+        expectedInvariant: expect.stringContaining('original task'),
+      }),
+      expect.objectContaining({
+        scenarioId: 's2',
+        mutationKind: 'irrelevant-distractor',
+        prompt: expect.stringContaining('Another prompt'),
+      }),
+    ]))
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'adversarial-mutation-probe',
+      severity: 'advisory',
+      scenarioIds: ['s1'],
+    }))
+  })
+
+  it('lets the CLI fail on configured doc drift and rubric ambiguity', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'assay-diagnostics-claim-blocking-'))
+    try {
+      const datasetPath = join(dir, 'dataset.json')
+      const artifactPath = join(dir, 'release-contract.json')
+      const docPath = join(dir, 'README.md')
+      await writeFile(
+        datasetPath,
+        JSON.stringify({
+          name: 'cli-drift-fixture',
+          version: '1.0.0',
+          scenarios: [
+            {
+              id: 'ambiguous',
+              axes: ['quality'],
+              input: {
+                messages: [
+                  {
+                    role: 'user',
+                    content: 'Assess the evidence and choose the most justified action.',
+                  },
+                ],
+              },
+              rubric: {
+                kind: 'mechanism',
+                quantitative: [],
+                disambiguation: [],
+                actions: [],
+                bingoTokens: [],
+              },
+              meta: { outcomeType: 'tp' },
+            },
+          ],
+        }),
+        'utf8',
+      )
+      await writeFile(
+        artifactPath,
+        JSON.stringify({
+          scenarioSetHash: 'a'.repeat(64),
+          scenarioSetHashMetadata: { scenarioCount: 1 },
+          claimGate: { status: 'allowed' },
+        }),
+        'utf8',
+      )
+      await writeFile(
+        docPath,
+        `Release says 2 scenarios and scenario-set hash ${'b'.repeat(64)} with claim gate blocked.`,
+        'utf8',
+      )
+
+      await expect(runCli([
+        'diagnostics',
+        datasetPath,
+        '--release-doc',
+        docPath,
+        '--release-artifact',
+        artifactPath,
+        '--claim-block-doc-drift',
+        '--claim-block-rubric-ambiguity',
+        '--fail-on-claim-blocking',
+      ])).rejects.toMatchObject({
+        stdout: expect.stringContaining('artifact-doc-drift'),
+      })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('prints diagnostics as stable JSON and readable CLI output', async () => {
