@@ -222,6 +222,35 @@ keys, pass/fail criteria, raw outputs, or per-scenario scores. See
 [`docs/proof-bundle-format.md`](docs/proof-bundle-format.md) for the full
 format.
 
+`assay proof verify` re-checks a proof manifest against the held source
+artifacts. Use `--json` for machine-readable output, and add
+`--leaderboard-eligible --claim-card ...` when the proof is being used to
+support a leaderboard claim. That path shares the same `assertRunClaimEligible()`
+claim-card gate used by publish and fails closed for stale, blocked, malformed,
+or analysis-only claim material.
+
+```bash
+pnpm assay proof verify artifacts/assay-proof.json \
+  --run runs/frontier-run.json \
+  --contract artifacts/assay-adtech-release-contract.json \
+  --dataset artifacts/public-harness-export.json \
+  --leaderboard-eligible \
+  --claim-card artifacts/claim-card.json
+```
+
+`assay proof replay` is for deterministic golden fixtures where model outputs
+are pinned in the `RunRecord`. It re-scores those outputs, regenerates
+aggregates, and compares the regenerated proof inputs against the supplied
+proof manifest.
+
+```bash
+pnpm assay proof replay \
+  --run runs/golden-pinned-run.json \
+  --contract artifacts/assay-adtech-release-contract.json \
+  --dataset artifacts/public-harness-export.json \
+  --proof artifacts/assay-proof.json
+```
+
 `assay frontier verify` checks whether a proof bundle or frontier metadata can
 support a public frontier claim. It fails closed when the release contract claim
 gate is blocked or malformed, the scenario-set hash or hash schema does not
