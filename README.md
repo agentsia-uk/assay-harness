@@ -409,7 +409,9 @@ pnpm assay contract examples/scenarios \
 
 `analyseScenarioItems()` reports item-level pass rates, outcome-type coverage, and possible leakage when scenario prompts overlap known training prompts. `compareScenarioSets()` reports added, removed, changed, and suspiciously overlapping scenarios between dataset versions. These diagnostics are intended to help Modelsmith decide whether to generate new training scenarios, revise weak eval items, or block contaminated training data.
 
-`auditScenarioSet()` is the broader public methodology audit. It is domain-generic: the core reads public scenario metadata such as `meta.outcomeType` and lane metadata, while release-specific checks can be supplied as `ScenarioDiagnosticsPlugin` instances. The built-in `createMetadataFreshnessPlugin()` is a generic plugin helper for metadata such as `meta.domainFacts`; adtech-specific stale-fact policy still belongs outside the core package.
+`auditScenarioSet()` is the broader public methodology audit. It is domain-generic: the core reads public scenario metadata such as `meta.outcomeType` and lane metadata, while release-specific checks can be supplied as `ScenarioDiagnosticsPlugin` instances. The built-in `createMetadataFreshnessPlugin()` is a generic plugin helper for metadata such as `meta.domainFacts`; adtech-specific stale-fact policy still belongs outside the core package. The audit also checks ambiguous prompts, unverifiable expected outcomes, conflicting rubric gates, stale public facts in `meta.publicFacts`, and release-doc drift when callers provide markdown plus machine-readable release artifacts.
+
+Adversarial diagnostics are plugin-driven. A plugin can implement `generateAdversarialProbes(context)` to return corpus-agnostic perturbation probes, and the public `createGenericAdversarialMutationPlugin()` helper generates generic instruction-override, distractor, and format-pressure probes without embedding benchmark-specific content.
 
 The CLI exposes the same report in readable and JSON forms:
 
@@ -421,6 +423,11 @@ pnpm assay diagnostics path/to/public-export.json \
   --required-outcome tp --required-outcome tn \
   --required-outcome fp-guard --required-outcome fn-guard \
   --required-lane bid-floor --required-lane pmp \
+  --release-doc README.md \
+  --release-artifact artifacts/release-contract.json \
+  --generic-adversarial-probes \
+  --claim-block-doc-drift \
+  --claim-block-rubric-ambiguity \
   --fail-on-claim-blocking
 ```
 
@@ -435,6 +442,11 @@ Diagnostics are labelled by claim impact:
 | Near-duplicate prompts | Advisory | Similar prompts need review, but a domain owner may intentionally vary a prompt family. |
 | Leakage against supplied training prompts | Claim-blocking | Contaminated scenarios should not support public claims. |
 | `non-empty` or smoke-only/sign-blind `contains` rubrics | Claim-blocking | Smoke checkers exercise harness plumbing rather than benchmark-grade scoring. |
+| Ambiguous prompts or ambiguous rubrics | Advisory by default; rubric ambiguity can be promoted with `--claim-block-rubric-ambiguity` | Domain packs may tolerate tiny smoke fixtures, but release claims should use prompts and rubrics with clear gates. |
+| Missing/verifiably empty expected outcomes or conflicting rubric gates | Claim-blocking | A benchmark item cannot support a public claim when the expected outcome is absent or internally contradictory. |
+| Stale `meta.publicFacts` entries | Advisory by default | Public fact freshness policy is release-specific; callers can supply stricter plugin findings when needed. |
+| Release docs that quote stale counts, hashes, quorum, or claim state | Advisory by default; claim-blocking with `--claim-block-doc-drift` | README prose and artifacts must not diverge from machine-readable release contracts. |
+| Generated adversarial mutation probes | Advisory | Probe generation is evidence for hardening workflows; scoring or corpus-specific mutation policy belongs in plugins/domain packs. |
 | Too-easy / too-hard scored items | Advisory | They guide item revision but do not prove the scenario is invalid. |
 | Plugin findings such as stale domain facts | Plugin-defined | Domain freshness windows are release policy, so plugins choose advisory or claim-blocking severity. |
 

@@ -73,13 +73,21 @@ export { aggregate, comparePairedScores } from './aggregator.js'
 export {
   analyseScenarioItems,
   auditScenarioSet,
+  buildGenericAdversarialProbes,
   compareScenarioSets,
+  createGenericAdversarialMutationPlugin,
   createMetadataFreshnessPlugin,
   formatScenarioAuditReport,
 } from './diagnostics.js'
 export type {
   DiagnosticSeverity,
+  GenericAdversarialMutationPluginOptions,
   MetadataFreshnessPluginOptions,
+  ReleaseClaimFacts,
+  ReleaseDiagnosticArtifact,
+  ReleaseDiagnosticDocument,
+  ScenarioAdversarialProbe,
+  ScenarioAdversarialProbeDraft,
   ScenarioDiagnosticFinding,
   ScenarioDiagnosticKind,
   ScenarioDiagnosticsPlugin,
