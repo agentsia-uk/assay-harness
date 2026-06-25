@@ -338,6 +338,10 @@ export function validateProofBundleManifest(
   if (manifestObject['releaseContractHash'] !== expectedReleaseContract) {
     errors.push('releaseContractHash does not match the supplied release contract')
   }
+  const expectedClaimGate = summarizeClaimGate(inputs.releaseContract)
+  if (canonicalJson(manifestObject['claimGate']) !== canonicalJson(expectedClaimGate)) {
+    errors.push('claimGate does not match the supplied release contract')
+  }
 
   const expectedRunnerMetadata = checksumObject(summarizeRunnerMetadata(inputs.runRecord))
   if (checksums['runnerMetadata'] !== expectedRunnerMetadata) {
@@ -782,6 +786,7 @@ function selfTestChecks(
       runRecord: options.runRecord,
       releaseContract: options.releaseContract,
       ...(options.dataset ? { dataset: options.dataset } : {}),
+      ...(options.traceBundle !== undefined ? { traceBundle: options.traceBundle } : {}),
     },
   )
   const canonicalOnce = checksumObject(manifestCore)

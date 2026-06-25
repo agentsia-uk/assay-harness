@@ -341,6 +341,30 @@ describe('proof bundle manifest', () => {
     expect(manifest.reproducibilitySelfTest.status).toBe('passed')
   })
 
+  it('rejects proof manifests whose claim gate diverges from the release contract', () => {
+    const ds = dataset()
+    const record = runRecord(ds)
+    const contract = releaseContract(record.scenarioSetHash!, 'blocked')
+    const manifest = buildProofBundleManifest({ runRecord: record, releaseContract: contract, dataset: ds })
+    const forged = {
+      ...manifest,
+      claimGate: {
+        status: 'allowed' as const,
+        leaderboardClaimsAllowed: true,
+        gatedDomains: [],
+      },
+    }
+
+    const result = validateProofBundleManifest(forged, {
+      runRecord: record,
+      releaseContract: contract,
+      dataset: ds,
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors.join('\n')).toContain('claimGate does not match')
+  })
+
   it('fails the proof self-test when claim-allowed material contains analysis-only scores', () => {
     const ds = dataset()
     const record = runRecord(ds)
@@ -490,6 +514,13 @@ describe('proof bundle manifest', () => {
         dataset: ds,
         traceBundle: traces,
       })
+      expect(manifest.reproducibilitySelfTest.status).toBe('passed')
+      expect(validateProofBundleManifest(manifest, {
+        runRecord: record,
+        releaseContract: contract,
+        dataset: ds,
+        traceBundle: traces,
+      })).toEqual({ valid: true, errors: [] })
       const wrongHashManifest = {
         ...manifest,
         hashSchema: {
