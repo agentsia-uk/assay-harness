@@ -35,3 +35,9 @@ export function redactCommandLineText(commandLine: string): string {
     .replace(BEARER_TEXT_RE, '[REDACTED]')
     .replace(SECRET_TEXT_RE, '[REDACTED]')
 }
+
+export function redactText(text: string): string {
+  return text
+    .replace(BEARER_TEXT_RE, '[REDACTED]')
+    .replace(SECRET_TEXT_RE, '[REDACTED]')
+}
