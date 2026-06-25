@@ -227,6 +227,39 @@ export interface ScenarioSetFingerprint {
   uri?: string
 }
 
+export interface ClaimCardProviderCell {
+  provider: string
+  model?: string
+  status: 'verified' | 'failed' | 'blocked' | 'stale'
+  generatedAt?: string
+  expiresAt?: string
+  proofUrl?: string
+}
+
+export interface ClaimCard {
+  schemaVersion: 'assay.claim-card.v1'
+  dataset: {
+    name: string
+    version: string
+  }
+  scenarioSetHash: string
+  hashSchemaVersion: ScenarioSetHashSchemaVersion
+  status: 'allowed' | 'blocked'
+  leaderboardClaimsAllowed: boolean
+  generatedAt?: string
+  expiresAt?: string
+  allowedClaimText?: string
+  blocker?: string
+  implementationFingerprints?: ScenarioSetFingerprint[]
+  scorerFingerprints?: ScenarioSetFingerprint[]
+  quorum?: {
+    required: number
+    providers: string[]
+  }
+  providerCells?: ClaimCardProviderCell[]
+  metadata?: Record<string, unknown>
+}
+
 export interface ScenarioMultiTurnShape {
   id: string
   multiTurn: boolean

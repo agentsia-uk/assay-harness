@@ -1,29 +1,77 @@
 import { describe, expect, it } from 'vitest'
-import { validateRunRecord, assertValidRunRecord } from '../src/validate.js'
-import type { RunRecord } from '../src/types.js'
-import { computeScenarioSetHashV2 } from '../src/serialiser.js'
+import {
+  ClaimEligibilityError,
+  assertRunClaimEligible,
+  assertValidRunRecord,
+  validateClaimCard,
+  validateRunRecord,
+} from '../src/validate.js'
+import type { ClaimCard, Dataset, RunRecord } from '../src/types.js'
+import { computeScenarioSetHash, computeScenarioSetHashV2 } from '../src/serialiser.js'
+
+function dataset(): Dataset {
+  return {
+    name: 'test-ds',
+    version: '1.0.0',
+    scenarios: ['tp', 'tn', 'fp-guard', 'fn-guard'].map((outcomeType, index) => ({
+      id: `sc-${index + 1}`,
+      axes: ['quality'],
+      input: { messages: [{ role: 'user', content: `hello ${index + 1}` }] },
+      rubric: { kind: 'programmatic', checker: 'keyword', params: { expected: ['hello'] } },
+      meta: { outcomeType },
+    })),
+  }
+}
 
 function minimalRecord(): RunRecord {
+  const ds = dataset()
   return {
     id: 'run-001',
-    dataset: { name: 'test-ds', version: '1.0.0' },
+    dataset: { name: ds.name, version: ds.version },
+    scenarioSetHash: computeScenarioSetHash(ds),
     runners: ['stub:echo'],
     createdAt: new Date().toISOString(),
-    responses: [
-      {
+    responses: ds.scenarios.map((scenario) => ({
         runnerId: 'stub:echo',
-        scenarioId: 'sc-1',
+      scenarioId: scenario.id,
         output: 'hello',
         meta: { provider: 'stub', model: 'echo', accessedAt: new Date().toISOString(), latencyMs: 10 },
-      },
-    ],
-    scores: [{ runnerId: 'stub:echo', scenarioId: 'sc-1', axis: 'quality', value: 0.8 }],
+    })),
+    scores: ds.scenarios.map((scenario) => ({
+      runnerId: 'stub:echo',
+      scenarioId: scenario.id,
+      axis: 'quality',
+      value: 0.8,
+      claimStatus: 'programmatic',
+    })),
     aggregates: [
       {
         runnerId: 'stub:echo',
-        axes: { quality: { mean: 0.8, variance: 0, n: 1 } },
+        axes: {
+          quality: {
+            mean: 0.8,
+            variance: 0,
+            n: ds.scenarios.length,
+            confidenceInterval: {
+              method: 'bootstrap',
+              lower: 0.7,
+              upper: 0.9,
+              confidenceLevel: 0.95,
+              iterations: 1000,
+              seed: 1,
+              n: ds.scenarios.length,
+            },
+          },
+        },
         composite: 0.8,
         weights: { quality: 1 },
+        statisticalClaims: {
+          method: 'bootstrap',
+          confidenceLevel: 0.95,
+          iterations: 1000,
+          seed: 1,
+          sampleUnit: 'score',
+        },
       },
     ],
     meta: { harnessVersion: '0.4.0' },
@@ -32,7 +80,11 @@ function minimalRecord(): RunRecord {
 
 describe('validateRunRecord', () => {
   it('accepts a valid minimal legacy v0 RunRecord without scenario-set hash metadata', () => {
-    const result = validateRunRecord(minimalRecord())
+    const r = minimalRecord()
+    delete r.scenarioSetHash
+
+    const result = validateRunRecord(r)
+
     expect(result.valid).toBe(true)
     expect(result.errors).toHaveLength(0)
   })
@@ -175,5 +227,85 @@ describe('assertValidRunRecord', () => {
 
   it('throws with a descriptive message for an invalid record', () => {
     expect(() => assertValidRunRecord({ not: 'a run record' })).toThrow(/RunRecord validation failed/)
+  })
+})
+
+describe('claim card validation and eligibility', () => {
+  function claimCard(record = minimalRecord(), overrides: Partial<ClaimCard> = {}): ClaimCard {
+    return {
+      schemaVersion: 'assay.claim-card.v1',
+      dataset: record.dataset,
+      scenarioSetHash: record.scenarioSetHash!,
+      hashSchemaVersion: record.scenarioSetHashSchemaVersion ?? 'v1',
+      status: 'allowed',
+      leaderboardClaimsAllowed: true,
+      generatedAt: '2026-06-20T00:00:00.000Z',
+      expiresAt: '2026-07-20T00:00:00.000Z',
+      quorum: { required: 1, providers: ['stub'] },
+      providerCells: [
+        {
+          provider: 'stub',
+          model: 'echo',
+          status: 'verified',
+          generatedAt: '2026-06-20T00:00:00.000Z',
+          expiresAt: '2026-07-20T00:00:00.000Z',
+        },
+      ],
+      ...overrides,
+    }
+  }
+
+  it('validates a well-formed claim card', () => {
+    const result = validateClaimCard(claimCard(), '2026-06-21T00:00:00.000Z')
+
+    expect(result).toEqual({ valid: true, errors: [] })
+  })
+
+  it('rejects expired claim cards and blocked claim cards', () => {
+    expect(
+      validateClaimCard(
+        claimCard(undefined, { expiresAt: '2026-06-01T00:00:00.000Z' }),
+        '2026-06-21T00:00:00.000Z',
+      ).errors,
+    ).toContain('ClaimCard has expired')
+
+    expect(() =>
+      assertRunClaimEligible(minimalRecord(), {
+        dataset: dataset(),
+        claimCard: claimCard(undefined, {
+          status: 'blocked',
+          leaderboardClaimsAllowed: false,
+          blocker: 'frontier quorum pending',
+        }),
+        now: '2026-06-21T00:00:00.000Z',
+      }),
+    ).toThrow(ClaimEligibilityError)
+  })
+
+  it('fails claim eligibility on analysis-only scores and stale quorum cells', () => {
+    const record = minimalRecord()
+    record.scores[0].claimStatus = 'analysis-only'
+
+    expect(() =>
+      assertRunClaimEligible(record, {
+        dataset: dataset(),
+        claimCard: claimCard(record, {
+          providerCells: [{ provider: 'stub', status: 'stale' }],
+        }),
+        now: '2026-06-21T00:00:00.000Z',
+      }),
+    ).toThrow(/analysis-only|quorum/)
+  })
+
+  it('passes claim eligibility when corpus, card, statistics, and stratification agree', () => {
+    const record = minimalRecord()
+
+    expect(() =>
+      assertRunClaimEligible(record, {
+        dataset: dataset(),
+        claimCard: claimCard(record),
+        now: '2026-06-21T00:00:00.000Z',
+      }),
+    ).not.toThrow()
   })
 })

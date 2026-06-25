@@ -115,15 +115,23 @@ export type {
   ValidateProofBundleInputs,
 } from './proof.js'
 export {
+  aggregateConfidenceErrors,
+  assertRunClaimEligible,
   validateRunRecord,
   assertValidRunRecord,
   assertScenarioSetHashMatches,
   assertScenarioStratificationPublishable,
+  validateClaimCard,
+  ClaimEligibilityError,
   ScenarioSetHashMismatchError,
   ScenarioStratificationPublicationError,
   REQUIRED_OUTCOME_TYPES,
 } from './validate.js'
-export type { ValidationResult, StratificationGuardOptions } from './validate.js'
+export type {
+  ClaimEligibilityOptions,
+  ValidationResult,
+  StratificationGuardOptions,
+} from './validate.js'
 export { withRetry } from './retry.js'
 export { createStderrLogger, createNullLogger } from './progress.js'
 export type { ProgressEvent, ProgressLogger } from './progress.js'
