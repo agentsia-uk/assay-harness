@@ -2,6 +2,12 @@ import type { InferenceClient } from '@huggingface/inference'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
 import { withRetry } from '../retry.js'
+import {
+  buildRuntimeMetadata,
+  defaultSdkMetadata,
+  prepareRunnerRuntime,
+  withRunnerTimeout,
+} from './runtime.js'
 
 /**
  * Minimal Hugging Face client contract the runner depends on. Kept narrow so
@@ -26,6 +32,8 @@ export interface HFChatCompletionParams {
   temperature?: number
   seed?: number
   max_tokens?: number
+  top_p?: number
+  stop?: string[]
 }
 
 export interface HFChatCompletionResponse {
@@ -91,19 +99,40 @@ export function createHuggingFaceRunner(
     provider: 'huggingface',
     model: repoId,
     async run(scenario: Scenario, runOpts: RunnerOptions = {}): Promise<ModelResponse> {
+      const runtime = prepareRunnerRuntime({
+        runnerId: id,
+        provider: 'huggingface',
+        route: 'chatCompletion',
+        requestedModel: repoId,
+        opts: runOpts,
+        sdk: defaultSdkMetadata('@huggingface/inference'),
+        toolPolicy: {
+          tools: 'disabled',
+          grounding: 'not-supported',
+          webSearch: 'disabled',
+          note: 'The Hugging Face chat completion call is invoked without tool, function, or web-search parameters.',
+        },
+      })
       const client = await getClient()
       const messages = prepareMessages(scenario.input.messages, runOpts.systemPrompt)
-      const maxTokens = readMaxTokens(scenario, opts.defaultMaxTokens)
+      const maxTokens = runtime.safeExtra.maxTokens ?? readMaxTokens(scenario, opts.defaultMaxTokens)
       const started = Date.now()
 
       const params: HFChatCompletionParams = { model: repoId, messages }
       if (runOpts.temperature !== undefined) params.temperature = runOpts.temperature
       if (runOpts.seed !== undefined) params.seed = runOpts.seed
       if (maxTokens !== undefined) params.max_tokens = maxTokens
+      if (runtime.safeExtra.topP !== undefined) params.top_p = runtime.safeExtra.topP
+      if (runtime.safeExtra.stopSequences !== undefined) params.stop = runtime.safeExtra.stopSequences
 
       let apiResponse: HFChatCompletionResponse
       try {
-        apiResponse = await withRetry(() => client.chatCompletion(params))
+        apiResponse = await withRunnerTimeout(
+          () => withRetry(() => client.chatCompletion(params)),
+          runtime,
+          scenario.id,
+          'chatCompletion',
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(
@@ -118,6 +147,21 @@ export function createHuggingFaceRunner(
         finishReason: apiResponse.choices[0]?.finish_reason ?? null,
         promptTokens: apiResponse.usage?.prompt_tokens,
         completionTokens: apiResponse.usage?.completion_tokens,
+        totalTokens: apiResponse.usage?.total_tokens,
+        responseId: apiResponse.id ?? null,
+        systemFingerprint: apiResponse.system_fingerprint ?? null,
+        runtime: buildRuntimeMetadata({
+          runtime,
+          temperature: runOpts.temperature,
+          seed: runOpts.seed,
+          maxTokens,
+          reportedModel: apiResponse.model ?? null,
+          tokenUsage: {
+            promptTokens: apiResponse.usage?.prompt_tokens,
+            completionTokens: apiResponse.usage?.completion_tokens,
+            totalTokens: apiResponse.usage?.total_tokens,
+          },
+        }),
       }
       if (maxTokens !== undefined) extra['maxTokens'] = maxTokens
 

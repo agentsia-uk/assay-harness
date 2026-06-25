@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createAnthropicRunner, type AnthropicClientLike, type MessagesCreateParams } from '../src/runners/anthropic.js'
+import { PROVIDER_RUNTIME_SCHEMA_VERSION } from '../src/runners/runtime.js'
 import type { Scenario } from '../src/types.js'
 
 function makeStubClient(
@@ -63,6 +64,27 @@ describe('anthropic runner', () => {
     expect(response.meta.extra?.stopReason).toBe('end_turn')
     expect(response.meta.extra?.inputTokens).toBe(12)
     expect(response.meta.extra?.outputTokens).toBe(8)
+    expect(response.meta.extra?.totalTokens).toBe(20)
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime).toMatchObject({
+      schemaVersion: PROVIDER_RUNTIME_SCHEMA_VERSION,
+      provider: 'anthropic',
+      route: 'messages.create',
+      requestedModel: 'claude-opus-4-7',
+      reportedModel: 'claude-opus-4-7-20260101',
+      timeoutMs: null,
+      timedOut: false,
+    })
+    expect(runtime['toolPolicy']).toMatchObject({
+      tools: 'disabled',
+      grounding: 'not-supported',
+      webSearch: 'disabled',
+    })
+    expect(runtime['tokenUsage']).toMatchObject({
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+    })
   })
 
   it('joins multiple system messages with a blank line', async () => {
@@ -102,6 +124,27 @@ describe('anthropic runner', () => {
 
     await runner.run(scenario)
     expect(captured.lastCall?.max_tokens).toBe(256)
+  })
+
+  it('forwards safe extra generation options and records them in runtime metadata', async () => {
+    const captured: { lastCall?: MessagesCreateParams } = {}
+    const client = makeStubClient('ok', captured)
+    const runner = createAnthropicRunner('claude-haiku-4-5', { client })
+
+    const response = await runner.run(exactMatchScenario, {
+      extra: { maxTokens: 192, topP: 0.7, stopSequences: ['</done>'] },
+    })
+
+    expect(captured.lastCall?.max_tokens).toBe(192)
+    expect(captured.lastCall?.top_p).toBe(0.7)
+    expect(captured.lastCall?.stop_sequences).toEqual(['</done>'])
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime['forwardedExtraKeys']).toEqual(['maxTokens', 'topP', 'stopSequences'])
+    expect(runtime['options']).toMatchObject({
+      maxTokens: 192,
+      topP: 0.7,
+      stopSequences: ['</done>'],
+    })
   })
 
   it('throws a contextual error when the API call fails', async () => {

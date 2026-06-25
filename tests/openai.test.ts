@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   createOpenAIRunner,
   type ChatCompletionCreateParams,
+  type ChatCompletionResponse,
   type OpenAIClientLike,
 } from '../src/runners/openai.js'
+import { PROVIDER_RUNTIME_SCHEMA_VERSION } from '../src/runners/runtime.js'
 import type { Scenario } from '../src/types.js'
 
 function makeStubClient(
@@ -75,7 +77,28 @@ describe('openai runner', () => {
     expect(response.meta.extra?.systemFingerprint).toBe('fp_test')
     expect(response.meta.extra?.promptTokens).toBe(40)
     expect(response.meta.extra?.completionTokens).toBe(16)
+    expect(response.meta.extra?.totalTokens).toBe(56)
     expect(response.meta.extra?.responseId).toBe('chatcmpl-test-123')
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime).toMatchObject({
+      schemaVersion: PROVIDER_RUNTIME_SCHEMA_VERSION,
+      provider: 'openai',
+      route: 'chat.completions',
+      requestedModel: 'gpt-6',
+      reportedModel: 'gpt-6-2026-04-01',
+      timeoutMs: null,
+      timedOut: false,
+    })
+    expect(runtime['toolPolicy']).toMatchObject({
+      tools: 'disabled',
+      grounding: 'not-supported',
+      webSearch: 'disabled',
+    })
+    expect(runtime['tokenUsage']).toMatchObject({
+      promptTokens: 40,
+      completionTokens: 16,
+      totalTokens: 56,
+    })
   })
 
   it('prepends runner systemPrompt when the scenario has no system message', async () => {
@@ -116,6 +139,66 @@ describe('openai runner', () => {
     const runner = createOpenAIRunner('gpt-6', { client })
     await runner.run(adtechScenario)
     expect(captured.lastCall?.max_tokens).toBeUndefined()
+  })
+
+  it('forwards safe extra generation options and records them in runtime metadata', async () => {
+    const captured: { lastCall?: ChatCompletionCreateParams } = {}
+    const client = makeStubClient('ok', captured)
+    const runner = createOpenAIRunner('gpt-6', { client })
+
+    const response = await runner.run(adtechScenario, {
+      extra: { maxTokens: 64, topP: 0.8, stopSequences: ['END'] },
+    })
+
+    expect(captured.lastCall?.max_tokens).toBe(64)
+    expect(captured.lastCall?.top_p).toBe(0.8)
+    expect(captured.lastCall?.stop).toEqual(['END'])
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime['forwardedExtraKeys']).toEqual(['maxTokens', 'topP', 'stopSequences'])
+    expect(runtime['options']).toMatchObject({
+      maxTokens: 64,
+      topP: 0.8,
+      stopSequences: ['END'],
+    })
+  })
+
+  it('rejects unsupported unsafe extra options before calling the provider', async () => {
+    let calls = 0
+    const client: OpenAIClientLike = {
+      chat: {
+        completions: {
+          async create() {
+            calls += 1
+            return makeStubClient('late').chat.completions.create({
+              model: 'gpt-6',
+              messages: [{ role: 'user', content: 'late' }],
+            })
+          },
+        },
+      },
+    }
+    const runner = createOpenAIRunner('gpt-6', { client })
+
+    await expect(
+      runner.run(adtechScenario, { extra: { tools: [] } }),
+    ).rejects.toThrow(/unsupported RunnerOptions\.extra key\(s\): tools/)
+    expect(calls).toBe(0)
+  })
+
+  it('enforces RunnerOptions.timeoutMs for provider calls', async () => {
+    const client: OpenAIClientLike = {
+      chat: {
+        completions: {
+          async create(): Promise<ChatCompletionResponse> {
+            return await new Promise<ChatCompletionResponse>(() => undefined)
+          },
+        },
+      },
+    }
+    const runner = createOpenAIRunner('gpt-6', { client })
+    await expect(runner.run(adtechScenario, { timeoutMs: 5 })).rejects.toThrow(
+      /chat\.completions\.create timed out after 5ms/,
+    )
   })
 
   it('throws a contextual error when the API call fails', async () => {

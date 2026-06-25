@@ -403,6 +403,14 @@ Every published Assay release should identify:
 - aggregate scores and confidence intervals
 - claim-gate status
 
+Provider runners store a common runtime block at `ModelResponse.meta.extra.runtime`
+with the provider route, requested and provider-reported model identity, timeout,
+SDK package details where available, forwarded generation options, token usage
+where returned by the provider, and the active tool/grounding policy. Programmatic
+callers may pass generation-only `RunnerOptions.extra` keys: `maxTokens`, `topP`,
+and `stopSequences`. Tool, function, grounding, web-search, response-format, and
+unknown extra options fail before a provider request is started.
+
 What makes the headline reproducible rather than merely asserted is the **golden reproducibility self-test**: a pinned corpus plus pinned model outputs are scored in CI, and the regenerated composite must equal the published value. Because the scoring mechanism is public (the anti-bingo cap and negation-aware matcher, the persistence grader), anyone can run the same pinned inputs through the same scorer and land on the same number. A score that cannot be regenerated from pinned inputs and the public scorer is not a reproducible score, and should not be quoted as one.
 
 Released versus held-out is drawn explicitly in [`docs/public-held-out-boundary.md`](docs/public-held-out-boundary.md). Released scenarios are reproducibly scorable from this repo. Held-out scenarios are disclosed as held out and never silently mixed into a public composite. Judge-mediated components are disclosed as judge-mediated and default to `analysis-only`.

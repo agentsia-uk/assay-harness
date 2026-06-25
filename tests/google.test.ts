@@ -5,6 +5,7 @@ import {
   type GenerateContentParams,
   type GoogleClientLike,
 } from '../src/runners/google.js'
+import { PROVIDER_RUNTIME_SCHEMA_VERSION } from '../src/runners/runtime.js'
 import type { Scenario } from '../src/types.js'
 
 function makeStubClient(
@@ -77,6 +78,26 @@ describe('google runner', () => {
     expect(response.meta.extra?.promptTokens).toBe(42)
     expect(response.meta.extra?.candidatesTokens).toBe(24)
     expect(response.meta.extra?.totalTokens).toBe(66)
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime).toMatchObject({
+      schemaVersion: PROVIDER_RUNTIME_SCHEMA_VERSION,
+      provider: 'google',
+      route: 'models.generateContent',
+      requestedModel: 'gemini-3-pro',
+      reportedModel: 'gemini-3-pro-2026-04-01',
+      timeoutMs: null,
+      timedOut: false,
+    })
+    expect(runtime['toolPolicy']).toMatchObject({
+      tools: 'disabled',
+      grounding: 'disabled',
+      webSearch: 'disabled',
+    })
+    expect(runtime['tokenUsage']).toMatchObject({
+      promptTokens: 42,
+      completionTokens: 24,
+      totalTokens: 66,
+    })
   })
 
   it('joins multiple system messages into systemInstruction', async () => {
@@ -127,6 +148,27 @@ describe('google runner', () => {
     const runner = createGoogleRunner('gemini-3-pro', { client })
     await runner.run(adtechScenario)
     expect(captured.lastCall?.config?.maxOutputTokens).toBeUndefined()
+  })
+
+  it('forwards safe extra generation options and records them in runtime metadata', async () => {
+    const captured: { lastCall?: GenerateContentParams } = {}
+    const client = makeStubClient('ok', captured)
+    const runner = createGoogleRunner('gemini-3-pro', { client })
+
+    const response = await runner.run(adtechScenario, {
+      extra: { maxTokens: 88, topP: 0.6, stopSequences: ['STOP'] },
+    })
+
+    expect(captured.lastCall?.config?.maxOutputTokens).toBe(88)
+    expect(captured.lastCall?.config?.topP).toBe(0.6)
+    expect(captured.lastCall?.config?.stopSequences).toEqual(['STOP'])
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime['forwardedExtraKeys']).toEqual(['maxTokens', 'topP', 'stopSequences'])
+    expect(runtime['options']).toMatchObject({
+      maxTokens: 88,
+      topP: 0.6,
+      stopSequences: ['STOP'],
+    })
   })
 
   it('throws a contextual error when the API call fails', async () => {

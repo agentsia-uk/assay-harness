@@ -2,6 +2,12 @@ import type Anthropic from '@anthropic-ai/sdk'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
 import { withRetry } from '../retry.js'
+import {
+  buildRuntimeMetadata,
+  defaultSdkMetadata,
+  prepareRunnerRuntime,
+  withRunnerTimeout,
+} from './runtime.js'
 
 /**
  * Minimal Anthropic client contract the runner depends on. Kept narrow so
@@ -17,6 +23,8 @@ export interface MessagesCreateParams {
   model: string
   max_tokens: number
   temperature?: number
+  top_p?: number
+  stop_sequences?: string[]
   system?: string
   messages: { role: 'user' | 'assistant'; content: string }[]
 }
@@ -82,22 +90,49 @@ export function createAnthropicRunner(
     provider: 'anthropic',
     model,
     async run(scenario: Scenario, runOpts: RunnerOptions = {}): Promise<ModelResponse> {
+      const runtime = prepareRunnerRuntime({
+        runnerId: id,
+        provider: 'anthropic',
+        route: 'messages.create',
+        requestedModel: model,
+        opts: runOpts,
+        sdk: defaultSdkMetadata('@anthropic-ai/sdk'),
+        toolPolicy: {
+          tools: 'disabled',
+          grounding: 'not-supported',
+          webSearch: 'disabled',
+          note: 'The Messages API call is invoked without tool, function, or web-search parameters.',
+        },
+      })
       const client = await getClient()
       const { system, messages } = splitMessages(scenario.input.messages, runOpts.systemPrompt)
-      const maxTokens = readMaxTokens(scenario, opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS)
+      const maxTokens = readMaxTokens(
+        scenario,
+        opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+      )
+      const resolvedMaxTokens = runtime.safeExtra.maxTokens ?? maxTokens
       const started = Date.now()
 
       const params: MessagesCreateParams = {
         model,
-        max_tokens: maxTokens,
+        max_tokens: resolvedMaxTokens,
         messages,
       }
       if (system) params.system = system
       if (runOpts.temperature !== undefined) params.temperature = runOpts.temperature
+      if (runtime.safeExtra.topP !== undefined) params.top_p = runtime.safeExtra.topP
+      if (runtime.safeExtra.stopSequences !== undefined) {
+        params.stop_sequences = runtime.safeExtra.stopSequences
+      }
 
       let apiResponse: MessagesCreateResponse
       try {
-        apiResponse = await withRetry(() => client.messages.create(params))
+        apiResponse = await withRunnerTimeout(
+          () => withRetry(() => client.messages.create(params)),
+          runtime,
+          scenario.id,
+          'messages.create',
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(
@@ -119,10 +154,32 @@ export function createAnthropicRunner(
           accessedAt: new Date().toISOString(),
           latencyMs,
           extra: {
-            maxTokens,
+            maxTokens: resolvedMaxTokens,
             stopReason: apiResponse.stop_reason ?? null,
             inputTokens: apiResponse.usage?.input_tokens,
             outputTokens: apiResponse.usage?.output_tokens,
+            totalTokens:
+              apiResponse.usage?.input_tokens !== undefined ||
+              apiResponse.usage?.output_tokens !== undefined
+                ? (apiResponse.usage?.input_tokens ?? 0) + (apiResponse.usage?.output_tokens ?? 0)
+                : undefined,
+            runtime: buildRuntimeMetadata({
+              runtime,
+              temperature: runOpts.temperature,
+              seed: runOpts.seed,
+              maxTokens: resolvedMaxTokens,
+              reportedModel: apiResponse.model,
+              tokenUsage: {
+                promptTokens: apiResponse.usage?.input_tokens,
+                completionTokens: apiResponse.usage?.output_tokens,
+                totalTokens:
+                  apiResponse.usage?.input_tokens !== undefined ||
+                  apiResponse.usage?.output_tokens !== undefined
+                    ? (apiResponse.usage?.input_tokens ?? 0) +
+                      (apiResponse.usage?.output_tokens ?? 0)
+                    : undefined,
+              },
+            }),
           },
         },
       }

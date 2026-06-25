@@ -2,6 +2,12 @@ import type { GoogleGenAI } from '@google/genai'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
 import { withRetry } from '../retry.js'
+import {
+  buildRuntimeMetadata,
+  defaultSdkMetadata,
+  prepareRunnerRuntime,
+  withRunnerTimeout,
+} from './runtime.js'
 
 /**
  * Minimal Google Gemini client contract the runner depends on. Kept narrow so
@@ -28,6 +34,8 @@ export interface GeminiContent {
 export interface GenerateContentConfig {
   systemInstruction?: string
   temperature?: number
+  topP?: number
+  stopSequences?: string[]
   maxOutputTokens?: number
 }
 
@@ -119,25 +127,48 @@ export function createGoogleRunner(model: string, opts: GoogleRunnerOptions = {}
     provider: 'google',
     model,
     async run(scenario: Scenario, runOpts: RunnerOptions = {}): Promise<ModelResponse> {
+      const runtime = prepareRunnerRuntime({
+        runnerId: id,
+        provider: 'google',
+        route: 'models.generateContent',
+        requestedModel: model,
+        opts: runOpts,
+        sdk: defaultSdkMetadata('@google/genai'),
+        toolPolicy: {
+          tools: 'disabled',
+          grounding: 'disabled',
+          webSearch: 'disabled',
+          note: 'Grounding, URL context, search, and other tool configs are intentionally not passed to evaluation calls.',
+        },
+      })
       const client = await getClient()
       const { systemInstruction, contents } = splitMessages(
         scenario.input.messages,
         runOpts.systemPrompt,
       )
-      const maxOutputTokens = readMaxTokens(scenario, opts.defaultMaxTokens)
+      const maxOutputTokens = runtime.safeExtra.maxTokens ?? readMaxTokens(scenario, opts.defaultMaxTokens)
       const started = Date.now()
 
       const config: GenerateContentConfig = {}
       if (systemInstruction) config.systemInstruction = systemInstruction
       if (runOpts.temperature !== undefined) config.temperature = runOpts.temperature
       if (maxOutputTokens !== undefined) config.maxOutputTokens = maxOutputTokens
+      if (runtime.safeExtra.topP !== undefined) config.topP = runtime.safeExtra.topP
+      if (runtime.safeExtra.stopSequences !== undefined) {
+        config.stopSequences = runtime.safeExtra.stopSequences
+      }
 
       const params: GenerateContentParams = { model, contents }
       if (Object.keys(config).length > 0) params.config = config
 
       let apiResponse: GenerateContentResult
       try {
-        apiResponse = await withRetry(() => client.models.generateContent(params))
+        apiResponse = await withRunnerTimeout(
+          () => withRetry(() => client.models.generateContent(params)),
+          runtime,
+          scenario.id,
+          'models.generateContent',
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(
@@ -163,6 +194,18 @@ export function createGoogleRunner(model: string, opts: GoogleRunnerOptions = {}
             candidatesTokens: apiResponse.usageMetadata?.candidatesTokenCount,
             totalTokens: apiResponse.usageMetadata?.totalTokenCount,
             ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
+            runtime: buildRuntimeMetadata({
+              runtime,
+              temperature: runOpts.temperature,
+              seed: runOpts.seed,
+              maxTokens: maxOutputTokens,
+              reportedModel: apiResponse.modelVersion ?? null,
+              tokenUsage: {
+                promptTokens: apiResponse.usageMetadata?.promptTokenCount,
+                completionTokens: apiResponse.usageMetadata?.candidatesTokenCount,
+                totalTokens: apiResponse.usageMetadata?.totalTokenCount,
+              },
+            }),
           },
         },
       }
