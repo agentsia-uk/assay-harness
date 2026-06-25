@@ -2,6 +2,12 @@ import type OpenAI from 'openai'
 
 import type { Message, ModelResponse, Runner, RunnerOptions, Scenario } from '../types.js'
 import { withRetry } from '../retry.js'
+import {
+  buildRuntimeMetadata,
+  defaultSdkMetadata,
+  prepareRunnerRuntime,
+  withRunnerTimeout,
+} from './runtime.js'
 
 /**
  * Minimal OpenAI client contract the runner depends on. Kept narrow so
@@ -26,6 +32,8 @@ export interface ChatCompletionCreateParams {
   temperature?: number
   seed?: number
   max_tokens?: number
+  top_p?: number
+  stop?: string[]
 }
 
 export interface ChatCompletionResponse {
@@ -90,19 +98,40 @@ export function createOpenAIRunner(model: string, opts: OpenAIRunnerOptions = {}
     provider: 'openai',
     model,
     async run(scenario: Scenario, runOpts: RunnerOptions = {}): Promise<ModelResponse> {
+      const runtime = prepareRunnerRuntime({
+        runnerId: id,
+        provider: 'openai',
+        route: 'chat.completions',
+        requestedModel: model,
+        opts: runOpts,
+        sdk: defaultSdkMetadata('openai'),
+        toolPolicy: {
+          tools: 'disabled',
+          grounding: 'not-supported',
+          webSearch: 'disabled',
+          note: 'The Chat Completions route is invoked without tool, function, or web-search parameters.',
+        },
+      })
       const client = await getClient()
       const messages = prepareMessages(scenario.input.messages, runOpts.systemPrompt)
-      const maxTokens = readMaxTokens(scenario, opts.defaultMaxTokens)
+      const maxTokens = runtime.safeExtra.maxTokens ?? readMaxTokens(scenario, opts.defaultMaxTokens)
       const started = Date.now()
 
       const params: ChatCompletionCreateParams = { model, messages }
       if (runOpts.temperature !== undefined) params.temperature = runOpts.temperature
       if (runOpts.seed !== undefined) params.seed = runOpts.seed
       if (maxTokens !== undefined) params.max_tokens = maxTokens
+      if (runtime.safeExtra.topP !== undefined) params.top_p = runtime.safeExtra.topP
+      if (runtime.safeExtra.stopSequences !== undefined) params.stop = runtime.safeExtra.stopSequences
 
       let apiResponse: ChatCompletionResponse
       try {
-        apiResponse = await withRetry(() => client.chat.completions.create(params))
+        apiResponse = await withRunnerTimeout(
+          () => withRetry(() => client.chat.completions.create(params)),
+          runtime,
+          scenario.id,
+          'chat.completions.create',
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(
@@ -128,8 +157,21 @@ export function createOpenAIRunner(model: string, opts: OpenAIRunnerOptions = {}
             systemFingerprint: apiResponse.system_fingerprint ?? null,
             promptTokens: apiResponse.usage?.prompt_tokens,
             completionTokens: apiResponse.usage?.completion_tokens,
+            totalTokens: apiResponse.usage?.total_tokens,
             responseId: apiResponse.id ?? null,
             ...(maxTokens !== undefined ? { maxTokens } : {}),
+            runtime: buildRuntimeMetadata({
+              runtime,
+              temperature: runOpts.temperature,
+              seed: runOpts.seed,
+              maxTokens,
+              reportedModel: apiResponse.model,
+              tokenUsage: {
+                promptTokens: apiResponse.usage?.prompt_tokens,
+                completionTokens: apiResponse.usage?.completion_tokens,
+                totalTokens: apiResponse.usage?.total_tokens,
+              },
+            }),
           },
         },
       }

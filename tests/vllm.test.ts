@@ -4,6 +4,7 @@ import type {
   ChatCompletionCreateParams,
   OpenAIClientLike,
 } from '../src/runners/openai.js'
+import { PROVIDER_RUNTIME_SCHEMA_VERSION } from '../src/runners/runtime.js'
 import { createVllmRunner } from '../src/runners/vllm.js'
 import type { Scenario } from '../src/types.js'
 
@@ -76,8 +77,30 @@ describe('vllm runner', () => {
     expect(response.meta.extra?.systemFingerprint).toBe('fp_vllm_local')
     expect(response.meta.extra?.promptTokens).toBe(24)
     expect(response.meta.extra?.completionTokens).toBe(8)
+    expect(response.meta.extra?.totalTokens).toBe(32)
     expect(response.meta.extra?.responseId).toBe('chatcmpl-vllm-test-1')
     expect(response.meta.extra?.baseUrl).toBe('http://gpu-host:8000/v1')
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime).toMatchObject({
+      schemaVersion: PROVIDER_RUNTIME_SCHEMA_VERSION,
+      provider: 'vllm',
+      route: 'openai-compatible.chat.completions',
+      requestedModel: 'Qwen/Qwen3-4B-Instruct-2507',
+      reportedModel: 'Qwen/Qwen3-4B-Instruct-2507@vllm',
+      timeoutMs: null,
+      timedOut: false,
+      endpoint: 'http://gpu-host:8000/v1',
+    })
+    expect(runtime['toolPolicy']).toMatchObject({
+      tools: 'disabled',
+      grounding: 'not-supported',
+      webSearch: 'disabled',
+    })
+    expect(runtime['tokenUsage']).toMatchObject({
+      promptTokens: 24,
+      completionTokens: 8,
+      totalTokens: 32,
+    })
   })
 
   it('falls back to the default baseURL when neither opts nor env are set', async () => {
@@ -131,6 +154,27 @@ describe('vllm runner', () => {
     const response = await runner.run(scenario)
     expect(captured.lastCall?.max_tokens).toBe(256)
     expect(response.meta.extra?.maxTokens).toBe(256)
+  })
+
+  it('forwards safe extra generation options and records them in runtime metadata', async () => {
+    const captured: { lastCall?: ChatCompletionCreateParams } = {}
+    const client = makeStubClient('ok', captured)
+    const runner = createVllmRunner('local-model', { client })
+
+    const response = await runner.run(adtechScenario, {
+      extra: { maxTokens: 72, topP: 0.5, stopSequences: ['END'] },
+    })
+
+    expect(captured.lastCall?.max_tokens).toBe(72)
+    expect(captured.lastCall?.top_p).toBe(0.5)
+    expect(captured.lastCall?.stop).toEqual(['END'])
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime['forwardedExtraKeys']).toEqual(['maxTokens', 'topP', 'stopSequences'])
+    expect(runtime['options']).toMatchObject({
+      maxTokens: 72,
+      topP: 0.5,
+      stopSequences: ['END'],
+    })
   })
 
   it('adds a "Confirm vLLM is running" hint on a connection-refused error', async () => {

@@ -5,6 +5,7 @@ import {
   type HFChatCompletionParams,
   type HFClientLike,
 } from '../src/runners/huggingface.js'
+import { PROVIDER_RUNTIME_SCHEMA_VERSION } from '../src/runners/runtime.js'
 import type { Scenario } from '../src/types.js'
 
 function makeStubClient(
@@ -70,6 +71,29 @@ describe('huggingface runner', () => {
     expect(response.meta.extra?.finishReason).toBe('stop')
     expect(response.meta.extra?.promptTokens).toBe(33)
     expect(response.meta.extra?.completionTokens).toBe(19)
+    expect(response.meta.extra?.totalTokens).toBe(52)
+    expect(response.meta.extra?.responseId).toBe('hfchat-test-123')
+    expect(response.meta.extra?.systemFingerprint).toBe('hf_fp_test')
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime).toMatchObject({
+      schemaVersion: PROVIDER_RUNTIME_SCHEMA_VERSION,
+      provider: 'huggingface',
+      route: 'chatCompletion',
+      requestedModel: 'Qwen/Qwen3-4B-Instruct-2507',
+      reportedModel: 'Qwen/Qwen3-4B-Instruct-2507@sha256:abcdef',
+      timeoutMs: null,
+      timedOut: false,
+    })
+    expect(runtime['toolPolicy']).toMatchObject({
+      tools: 'disabled',
+      grounding: 'not-supported',
+      webSearch: 'disabled',
+    })
+    expect(runtime['tokenUsage']).toMatchObject({
+      promptTokens: 33,
+      completionTokens: 19,
+      totalTokens: 52,
+    })
   })
 
   it('prepends runner systemPrompt when the scenario has no system message', async () => {
@@ -110,6 +134,27 @@ describe('huggingface runner', () => {
     const runner = createHuggingFaceRunner('Qwen/Qwen3-4B-Instruct-2507', { client })
     await runner.run(adtechScenario)
     expect(captured.lastCall?.max_tokens).toBeUndefined()
+  })
+
+  it('forwards safe extra generation options and records them in runtime metadata', async () => {
+    const captured: { lastCall?: HFChatCompletionParams } = {}
+    const client = makeStubClient('ok', captured)
+    const runner = createHuggingFaceRunner('Qwen/Qwen3-4B-Instruct-2507', { client })
+
+    const response = await runner.run(adtechScenario, {
+      extra: { maxTokens: 144, topP: 0.9, stopSequences: ['DONE'] },
+    })
+
+    expect(captured.lastCall?.max_tokens).toBe(144)
+    expect(captured.lastCall?.top_p).toBe(0.9)
+    expect(captured.lastCall?.stop).toEqual(['DONE'])
+    const runtime = response.meta.extra?.runtime as Record<string, unknown>
+    expect(runtime['forwardedExtraKeys']).toEqual(['maxTokens', 'topP', 'stopSequences'])
+    expect(runtime['options']).toMatchObject({
+      maxTokens: 144,
+      topP: 0.9,
+      stopSequences: ['DONE'],
+    })
   })
 
   it('throws a contextual error when the API call fails', async () => {
