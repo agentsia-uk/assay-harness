@@ -285,6 +285,11 @@ export function validateResumeLedger(
         `to "${expected.scenarioSetHashSchemaVersion}"`,
     )
   }
+  if (existing.harnessVersion !== expected.harnessVersion) {
+    errors.push(
+      `harness version changed from "${existing.harnessVersion}" to "${expected.harnessVersion}"`,
+    )
+  }
   if (canonicalJson(existing.runnerIds) !== canonicalJson(expected.runnerIds)) {
     errors.push(
       `runner ids changed from ${canonicalJson(existing.runnerIds)} to ${canonicalJson(expected.runnerIds)}`,

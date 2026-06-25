@@ -181,9 +181,14 @@ describe('run ledger', () => {
       ...base,
       runnerOptions: { temperature: 0.5 },
     })
+    const changedHarnessVersion = createRunLedgerHeader({
+      ...base,
+      harnessVersion: '0.0.1-test',
+    })
 
     expect(() => validateResumeLedger(base, changedDataset)).toThrow(/dataset hash changed/)
     expect(() => validateResumeLedger(base, changedOptions)).toThrow(/runner options changed/)
+    expect(() => validateResumeLedger(base, changedHarnessVersion)).toThrow(/harness version changed/)
   })
 
   it('builds public-safe trace bundles and blocks raw public output', () => {
