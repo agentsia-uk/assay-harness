@@ -13,6 +13,7 @@ import {
   type MultiTurnResult,
   type MultiTurnScenario,
 } from './runners/multi-turn.js'
+import { assertNotEnvironmentScenario } from './environment.js'
 import { PERSISTENCE_GRADER_VERSION } from './persistence-grader.js'
 import { score } from './rubric.js'
 import { aggregate } from './aggregator.js'
@@ -632,6 +633,7 @@ async function runSingleTurnForRecord(
   runnerOpts: RunnerOptions,
   llmJudge: LLMJudgeExecutor | undefined,
 ): Promise<ScenarioRunOutcome> {
+  assertNotEnvironmentScenario(scenario)
   assertSingleTurn(scenario)
   const response = await runner.run(scenario, runnerOpts)
   const scenarioScores = await score(response, scenario, llmJudge ? { llmJudge } : {})

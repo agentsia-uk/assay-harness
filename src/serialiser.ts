@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 
 import type {
   Dataset,
+  EnvironmentScenario,
   Rubric,
   RunRecord,
   Scenario,
@@ -17,6 +18,7 @@ import type {
 } from './types.js'
 import { assertValidRunRecord } from './validate.js'
 import { isMultiTurnScenario } from './runners/multi-turn.js'
+import { isEnvironmentScenario } from './environment.js'
 
 export const SCENARIO_SET_HASH_SCHEMA_V1 = 'v1' as const
 export const SCENARIO_SET_HASH_SCHEMA_V2 = 'v2' as const
@@ -34,6 +36,8 @@ export const SCENARIO_SET_HASH_V2_HASHED_FIELDS = [
   'scenario.scoringDescriptor',
   'scenario.multiTurnShape',
   'scenario.multiTurnRunnerVisibleInput',
+  'scenario.environmentShape',
+  'scenario.environmentRunnerVisibleInput',
   'implementationFingerprints',
   'scorerFingerprints',
 ] as const
@@ -92,6 +96,16 @@ export async function readRunRecord(path: string): Promise<RunRecord> {
  * do not move the corpus hash, mirroring Modelsmith's scenario-set-hash intent.
  */
 function scenarioHashContribution(scenario: Scenario): unknown {
+  if (isEnvironmentScenario(scenario)) {
+    return {
+      id: scenario.id,
+      axes: [...scenario.axes].sort(),
+      input: scenario.input,
+      rubric: scenario.rubric,
+      environment: scenario.environment,
+    }
+  }
+
   if (isMultiTurnScenario(scenario)) {
     return {
       id: scenario.id,
@@ -237,6 +251,8 @@ function scenarioHashContributionV2(scenario: Scenario): {
   scoringDescriptor: { id: string, value: unknown }
   multiTurnShape: ScenarioMultiTurnShape
   multiTurnRunnerVisibleInput: unknown
+  environmentShape: ScenarioEnvironmentShape
+  environmentRunnerVisibleInput: unknown
 } {
   const rubricDescriptor = publicRubricDescriptor(scenario.rubric)
   const scoringDescriptor = publicScoringDescriptor(scenario.rubric)
@@ -254,7 +270,19 @@ function scenarioHashContributionV2(scenario: Scenario): {
     },
     multiTurnShape: multiTurnShape(scenario),
     multiTurnRunnerVisibleInput: multiTurnRunnerVisibleInput(scenario),
+    environmentShape: environmentShape(scenario),
+    environmentRunnerVisibleInput: environmentRunnerVisibleInput(scenario),
   }
+}
+
+interface ScenarioEnvironmentShape {
+  id: string
+  environment: boolean
+  environmentId?: string
+  maxSteps: number
+  validatorCount: number
+  allowedToolCount: number
+  maxCalls?: number
 }
 
 function publicRubricDescriptor(rubric: Rubric): unknown {
@@ -318,6 +346,41 @@ function multiTurnRunnerVisibleInput(scenario: Scenario): unknown {
     userTurns: userTurns ?? [],
     persistenceCriteria: persistenceCriteria ?? [],
   })
+}
+
+function environmentRunnerVisibleInput(scenario: Scenario): unknown {
+  if (!isEnvironmentScenario(scenario)) return {}
+  return redactPrivateFields({
+    environmentId: scenario.environment.environmentId,
+    setup: scenario.environment.setup,
+    maxSteps: scenario.environment.maxSteps,
+    toolPolicy: scenario.environment.toolPolicy,
+    validators: scenario.environment.validators,
+  })
+}
+
+function environmentShape(scenario: Scenario): ScenarioEnvironmentShape {
+  if (!isEnvironmentScenario(scenario)) {
+    return {
+      id: scenario.id,
+      environment: false,
+      maxSteps: 0,
+      validatorCount: 0,
+      allowedToolCount: 0,
+    }
+  }
+  const environment = (scenario as EnvironmentScenario).environment
+  return {
+    id: scenario.id,
+    environment: true,
+    environmentId: environment.environmentId,
+    maxSteps: environment.maxSteps ?? 1,
+    validatorCount: environment.validators.length,
+    allowedToolCount: environment.toolPolicy?.allowedToolNames?.length ?? 0,
+    ...(environment.toolPolicy?.maxCalls !== undefined
+      ? { maxCalls: environment.toolPolicy.maxCalls }
+      : {}),
+  }
 }
 
 function multiTurnShape(scenario: Scenario): ScenarioMultiTurnShape {

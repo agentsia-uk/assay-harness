@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Dataset, Scenario } from '../src/types.js'
+import type { Dataset, EnvironmentScenario, Scenario } from '../src/types.js'
 import {
   SCENARIO_SET_HASH_SCHEMA_V2,
   UnknownScenarioSetHashSchemaError,
@@ -74,6 +74,8 @@ describe('scenario-set hash schema v2', () => {
         'scenario.scoringDescriptor',
         'scenario.multiTurnShape',
         'scenario.multiTurnRunnerVisibleInput',
+        'scenario.environmentShape',
+        'scenario.environmentRunnerVisibleInput',
         'implementationFingerprints',
         'scorerFingerprints',
       ]),
@@ -203,6 +205,63 @@ describe('scenario-set hash schema v2', () => {
       .scenarioSetHash
     expect(computeScenarioSetHashV2(dataset([changedTurn]), v2Options).scenarioSetHash)
       .not.toBe(baseHash)
+  })
+
+  it('hashes environment setup, tool policy, and state validators', () => {
+    const baseEnvironment = {
+      ...scenario('stateful'),
+      environment: {
+        environmentId: 'fixture:counter',
+        setup: { initial: 0 },
+        maxSteps: 2,
+        toolPolicy: { allowedToolNames: ['counter.add'], maxCalls: 2 },
+        validators: [{ id: 'count-equals', params: { expected: 5 } }],
+      },
+    } satisfies EnvironmentScenario
+    const baseHash = computeScenarioSetHashV2(dataset([baseEnvironment]), v2Options)
+      .scenarioSetHash
+    const changedSetup: EnvironmentScenario = {
+      ...baseEnvironment,
+      environment: {
+        ...baseEnvironment.environment,
+        setup: { initial: 1 },
+      },
+    }
+    const changedToolPolicy: EnvironmentScenario = {
+      ...baseEnvironment,
+      environment: {
+        ...baseEnvironment.environment,
+        toolPolicy: { allowedToolNames: ['counter.subtract'], maxCalls: 2 },
+      },
+    }
+    const changedValidator: EnvironmentScenario = {
+      ...baseEnvironment,
+      environment: {
+        ...baseEnvironment.environment,
+        validators: [{ id: 'count-equals', params: { expected: 4 } }],
+      },
+    }
+
+    expect(
+      computeScenarioSetHashV2(
+        dataset([changedSetup]),
+        v2Options,
+      ).scenarioSetHash,
+    ).not.toBe(baseHash)
+
+    expect(
+      computeScenarioSetHashV2(
+        dataset([changedToolPolicy]),
+        v2Options,
+      ).scenarioSetHash,
+    ).not.toBe(baseHash)
+
+    expect(
+      computeScenarioSetHashV2(
+        dataset([changedValidator]),
+        v2Options,
+      ).scenarioSetHash,
+    ).not.toBe(baseHash)
   })
 
   it('hashes public mechanism matcher and anti-bingo token strings', () => {

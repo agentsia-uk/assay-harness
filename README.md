@@ -143,6 +143,9 @@ This repo provides:
 - Core public types for `Scenario`, `Runner`, `ModelResponse`, `Score`, `ModelAggregate`, and `RunRecord`.
 - Programmatic rubric scoring, aggregate computation, paired comparison, serialization, proof-bundle generation, methodology diagnostics, frontier proof verification, and strict Modelsmith release-contract validators.
 - Multi-turn scenario execution plus the public persistence grader advertised by Modelsmith release contracts.
+- Environment-backed scenario execution for stateful tools, observations,
+  final-state validators, and redacted proof-ready traces. Domain packs own the
+  environment adapters and state; the harness owns the corpus-agnostic bridge.
 - Tiny examples that show the dataset shape without embedding benchmark holdout content in the source archive.
 
 This repo does not contain:
@@ -238,6 +241,7 @@ before quoting a leaderboard or performance claim.
 |---|---|
 | **Scenario** | One test case with prompt input, axes, rubric, and metadata. |
 | **Runner** | A provider-specific adapter that submits a scenario prompt and returns a `ModelResponse`. |
+| **Environment** | Optional stateful tool/action surface attached to a scenario. An environment adapter owns setup, tool transitions, observations, and executable state validators. |
 | **Rubric** | The scoring contract for a scenario. Current implementation supports programmatic rubrics. LLM-judge and human rubrics are typed and reserved for release-specific evaluators. |
 | **Score** | A normalized 0-to-1 value for one runner on one scenario and one axis. |
 | **Axis** | A capability dimension published for a benchmark, such as bid-shading judgement or RTB-payload parsing. |
@@ -275,6 +279,49 @@ The built-in `contains` checker is a plain substring match. On its own a substri
 ### Multi-Turn And Persistence
 
 Some scenarios are multi-turn: they submit a sequence of adversarial user turns and check whether the model holds its position across them rather than caving to pressure. The release contract advertises these via `multiTurn` / `conversationHistory` and a `persistence-grader-v1` harness dependency. The harness ships that grader (`runMultiTurn` plus `gradePersistence` / `scorePersistence` in `src/persistence-grader.ts`): it walks the conversation, accumulating history per turn, then grades persistence (did the model carry a fact, disposition, constraint, or mechanism forward; did it correctly update on legitimate new evidence). The matcher is the same negation-aware one the mechanism scorer uses, so "I will **not** approve the refund" is not scored as a flip. A scenario marked multi-turn is refused on the single-shot path rather than silently flattened to its first turn.
+
+### Stateful Environments
+
+Environment-backed scenarios add an explicit `environment` block to the normal
+scenario shape. The harness remains corpus-agnostic: it validates the public
+shape, calls a registered `EnvironmentAdapter`, records model-originated
+tool/action calls and observations, runs executable final-state validators, and
+collapses the result into normal `ModelResponse` and `Score` entries. Domain
+packs own concrete tools, state schemas, setup payloads, action parsers, and
+validator implementations.
+
+```json
+{
+  "id": "counter-reaches-five",
+  "axes": ["stateful-tools"],
+  "input": {
+    "messages": [
+      { "role": "user", "content": "Use counter.add until the counter reaches five." }
+    ]
+  },
+  "rubric": { "kind": "programmatic", "checker": "non-empty" },
+  "environment": {
+    "environmentId": "fixture:counter",
+    "setup": { "initial": 0 },
+    "maxSteps": 2,
+    "toolPolicy": {
+      "allowedToolNames": ["counter.add"],
+      "maxCalls": 2
+    },
+    "validators": [
+      { "id": "count-equals", "params": { "expected": 5 } }
+    ]
+  }
+}
+```
+
+Use `runEnvironmentScenario()` with an adapter, then
+`environmentResultToModelResponse()` and `scoreEnvironmentResult()` to fit the
+execution into the same `RunRecord` artifact model as normal chat scenarios.
+The trace schema (`assay.environment-trace.v1`) includes setup, policy, steps,
+actions, observations, final state, validator results, and redaction metadata.
+Default redaction masks secret-like keys and token-shaped values; adapters can
+provide a stricter redactor for domain-specific state.
 
 ## Statistical Claim Gates
 

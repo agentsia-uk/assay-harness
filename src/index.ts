@@ -158,6 +158,29 @@ export type {
   MultiTurnValidationOptions,
 } from './runners/multi-turn.js'
 export {
+  EnvironmentError,
+  EnvironmentRegistry,
+  assertNotEnvironmentScenario,
+  defaultEnvironmentRedactor,
+  environmentResultToModelResponse,
+  isEnvironmentScenario,
+  registerEnvironmentAdapter,
+  resolveEnvironmentAdapter,
+  runEnvironmentScenario,
+  scoreEnvironmentResult,
+  validateEnvironmentScenario,
+} from './environment.js'
+export type {
+  EnvironmentAdapter,
+  EnvironmentRedactionContext,
+  EnvironmentRedactor,
+  EnvironmentRunContext,
+  EnvironmentRunOptions,
+  EnvironmentRunResult,
+  EnvironmentStateValidator,
+  EnvironmentStepResult,
+} from './environment.js'
+export {
   gradePersistence,
   scorePersistence,
   PERSISTENCE_GRADER_VERSION,
