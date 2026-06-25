@@ -44,8 +44,9 @@ continues to pin the public Assay-Adtech v1 export and release contract.
 
 - Run single-turn and multi-turn scenario datasets through provider or local
   runners.
-- Score with public programmatic rubrics, the anti-bingo mechanism scorer, and
-  the persistence grader used by multi-turn scenarios.
+- Score with public programmatic rubrics, the anti-bingo mechanism scorer, the
+  persistence grader used by multi-turn scenarios, and explicitly configured
+  calibrated LLM-judge executors.
 - Bind results to scenario-set hashes, including additive schema-v2 metadata
   that covers runner-visible input, axes, rubric descriptors, multi-turn shape,
   and public-safe scorer fingerprints.
@@ -242,7 +243,7 @@ before quoting a leaderboard or performance claim.
 | **Scenario** | One test case with prompt input, axes, rubric, and metadata. |
 | **Runner** | A provider-specific adapter that submits a scenario prompt and returns a `ModelResponse`. |
 | **Environment** | Optional stateful tool/action surface attached to a scenario. An environment adapter owns setup, tool transitions, observations, and executable state validators. |
-| **Rubric** | The scoring contract for a scenario. Current implementation supports programmatic rubrics. LLM-judge and human rubrics are typed and reserved for release-specific evaluators. |
+| **Rubric** | The scoring contract for a scenario. The harness supports programmatic, mechanism, calibrated `llm-judge`, and human annotation workflows. |
 | **Score** | A normalized 0-to-1 value for one runner on one scenario and one axis. |
 | **Axis** | A capability dimension published for a benchmark, such as bid-shading judgement or RTB-payload parsing. |
 | **Composite** | Weighted average across axes. Weights are published alongside the benchmark release. |
@@ -270,7 +271,38 @@ Programmatic rubrics are implemented in `src/rubric.ts` and can be extended with
 - `contains`
 - `non-empty`
 
-The public type surface also defines `llm-judge` and `human` rubric variants. Programmatic rubrics remain the default for benchmark-grade claims. LLM judges require an explicit executor, calibration evidence, prompt provenance, and passing bias checks before the harness will score them. Their scores default to `analysis-only` so they cannot silently become leaderboard claims. Human annotations are represented through a validation and adjudication contract that can export preference pairs for downstream Modelsmith training workflows.
+The public type surface also defines executable `llm-judge` and `human` lanes. Programmatic rubrics remain the default for benchmark-grade claims. LLM judges require an explicit CLI executor (`--llm-judge-runner` or `--llm-judge-adapter`), calibration evidence, structured JSON output, and judge provenance whose prompt hash matches the calibrated rubric. Benchmark-eligible LLM judges must also include passing bias-check evidence. Judged scores default to `analysis-only`, and publish/proof claim gates fail closed when analysis-only scores are present in claim-allowed material.
+
+Run an `llm-judge` rubric with a provider runner:
+
+```bash
+pnpm assay run \
+  --dataset path/to/dataset.json \
+  --runner openai:gpt-5.5 \
+  --llm-judge-runner vllm:Qwen/Qwen3-32B \
+  --cache-judges \
+  --out runs/judged.json
+```
+
+For release-specific judge plumbing, pass a module that exports a default adapter function. The adapter receives the rendered rubric prompt and returns `{ "text": "...", "provider": "...", "model": "..." }`, where `text` must contain JSON with `score` in `0..1` and an optional `rationale`.
+
+```bash
+pnpm assay run \
+  --dataset path/to/dataset.json \
+  --runner stub:echo \
+  --llm-judge-adapter ./judge-adapter.mjs \
+  --judge-cache-dir .cache/judge \
+  --cache-judges \
+  --out runs/judged.json
+```
+
+Human annotation files can be imported as a JSON array or `{ "annotations": [...] }`. Validation checks required fields, conflicts, and adjudication status; export only uses agreed or adjudicated terminal labels.
+
+```bash
+pnpm assay human validate annotations.json
+pnpm assay human adjudicate annotations.json --decisions decisions.json --out annotations.adjudicated.json
+pnpm assay human export-pairs annotations.adjudicated.json --out preference-pairs.json
+```
 
 ### Mechanism Scorer And Anti-Bingo
 

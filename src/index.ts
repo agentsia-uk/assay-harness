@@ -7,6 +7,29 @@ export {
   annotationsToPreferencePairs,
 } from './rubric.js'
 export {
+  LLM_JUDGE_PARSER_VERSION,
+  DEFAULT_LLM_JUDGE_RUBRIC_VERSION,
+  buildLLMJudgePrompt,
+  createLLMJudgeExecutor,
+  createRunnerBackedLLMJudgeExecutor,
+  loadLLMJudgeAdapterFromModule,
+  parseLLMJudgeStructuredOutput,
+} from './llm-judge.js'
+export type {
+  CreateLLMJudgeExecutorOptions,
+  LLMJudgeAdapter,
+  LLMJudgeAdapterRequest,
+  LLMJudgeAdapterResult,
+  ParsedLLMJudgeOutput,
+  RunnerBackedLLMJudgeExecutorOptions,
+} from './llm-judge.js'
+export {
+  applyHumanAdjudications,
+  formatHumanAnnotationValidation,
+  readHumanAdjudicationDecisions,
+  readHumanAnnotations,
+} from './human.js'
+export {
   containsUnnegatedMatch,
   literalPhrase,
   tokenPresent,

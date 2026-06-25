@@ -579,6 +579,8 @@ export interface HumanAnnotation {
   annotatedAt: string
   status: 'pending' | 'agreed' | 'conflicted' | 'adjudicated' | 'rejected'
   rationale?: string
+  adjudicator?: string
+  adjudicatedAt?: string
 }
 
 export interface HumanAnnotationValidation {
@@ -589,6 +591,18 @@ export interface HumanAnnotationValidation {
     responseId: string
     labels: string[]
   }>
+}
+
+export interface HumanAdjudicationDecision {
+  itemId: string
+  responseId: string
+  label: HumanAnnotation['label']
+  score: number
+  adjudicator: string
+  scenarioHash?: string
+  rubricVersion?: string
+  adjudicatedAt?: string
+  rationale?: string
 }
 
 export interface PreferencePair {

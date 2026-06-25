@@ -15,7 +15,7 @@ import {
 } from './runners/multi-turn.js'
 import { assertNotEnvironmentScenario } from './environment.js'
 import { PERSISTENCE_GRADER_VERSION } from './persistence-grader.js'
-import { score } from './rubric.js'
+import { annotationsToPreferencePairs, score, validateHumanAnnotations } from './rubric.js'
 import { aggregate } from './aggregator.js'
 import {
   auditScenarioSet,
@@ -45,6 +45,17 @@ import {
   writeProofBundleManifest,
 } from './proof.js'
 import { createStderrLogger } from './progress.js'
+import {
+  applyHumanAdjudications,
+  formatHumanAnnotationValidation,
+  readHumanAdjudicationDecisions,
+  readHumanAnnotations,
+} from './human.js'
+import {
+  createLLMJudgeExecutor,
+  createRunnerBackedLLMJudgeExecutor,
+  loadLLMJudgeAdapterFromModule,
+} from './llm-judge.js'
 import {
   formatFrontierVerificationResult,
   readFrontierContractMetadata,
@@ -103,6 +114,10 @@ program
   .option('--concurrency <n>', 'max parallel scenarios per runner (default 3)', parseIntSafe, 3)
   .option('--cache-judges', 'cache LLM judge calls to .cache/judge/ (TTL 24 h)')
   .option('--cache-ttl <ms>', 'judge cache TTL in milliseconds', parseIntSafe)
+  .option('--judge-cache-dir <path>', 'judge cache directory (default .cache/judge)')
+  .option('--llm-judge-runner <id>', 'runner id for llm-judge scoring, e.g. openai:gpt-4.1')
+  .option('--llm-judge-adapter <path>', 'module exporting an LLM judge adapter function')
+  .option('--llm-judge-rubric-version <version>', 'rubric version stamped into judge provenance')
   .option(
     '--contract-hash <hash>',
     'declared scenario-set hash to bind this run to; the harness refuses to ' +
@@ -153,13 +168,16 @@ program
       at: at(),
     })
 
-    let llmJudge: LLMJudgeExecutor | undefined
+    let llmJudge = await resolveCliLLMJudge(opts)
     if (opts.cacheJudges) {
-      const identity: LLMJudgeExecutor = () => {
+      const executor = (llmJudge ?? (() => {
         throw new Error('No LLM judge executor configured for this run.')
-      }
-      llmJudge = withJudgeCache(identity, { ttlMs: opts.cacheTtl })
-      console.log('[judge-cache] enabled — results cached to .cache/judge/')
+      })) satisfies LLMJudgeExecutor
+      llmJudge = withJudgeCache(executor, {
+        ...(opts.judgeCacheDir ? { dir: opts.judgeCacheDir } : {}),
+        ...(opts.cacheTtl !== undefined ? { ttlMs: opts.cacheTtl } : {}),
+      })
+      console.log(`[judge-cache] enabled — results cached to ${opts.judgeCacheDir ?? '.cache/judge'}/`)
     }
 
     const responses: ModelResponse[] = []
@@ -299,6 +317,73 @@ program
     console.log(`wrote ${opts.out}`)
     for (const a of aggregates) {
       console.log(`  ${a.runnerId.padEnd(40)} composite=${a.composite.toFixed(3)}`)
+    }
+  })
+
+const human = program
+  .command('human')
+  .description('validate, adjudicate, and export human annotation files')
+
+human
+  .command('validate')
+  .description('validate a human annotation JSON file')
+  .argument('<annotations>', 'annotation JSON array or {"annotations":[...]} file')
+  .option('--json', 'output validation report as JSON')
+  .action(async (annotationsPath: string, opts: HumanValidateOptions) => {
+    const annotations = await readHumanAnnotations(annotationsPath)
+    const report = validateHumanAnnotations(annotations)
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2))
+    } else if (report.valid) {
+      console.log(formatHumanAnnotationValidation(report))
+    } else {
+      process.stderr.write(`${formatHumanAnnotationValidation(report)}\n`)
+    }
+    if (!report.valid) process.exitCode = 1
+  })
+
+human
+  .command('adjudicate')
+  .description('append adjudicated terminal labels from a decision file')
+  .argument('<annotations>', 'annotation JSON array or {"annotations":[...]} file')
+  .requiredOption('--decisions <path>', 'adjudication decision JSON array or {"decisions":[...]} file')
+  .requiredOption('-o, --out <path>', 'output annotation JSON path')
+  .action(async (annotationsPath: string, opts: HumanAdjudicateOptions) => {
+    const [annotations, decisions] = await Promise.all([
+      readHumanAnnotations(annotationsPath),
+      readHumanAdjudicationDecisions(opts.decisions),
+    ])
+    const adjudicated = applyHumanAdjudications(annotations, decisions)
+    const report = validateHumanAnnotations(adjudicated)
+    if (!report.valid) {
+      process.stderr.write(`${formatHumanAnnotationValidation(report)}\n`)
+      process.exitCode = 1
+      return
+    }
+    await writeFile(opts.out, `${JSON.stringify(adjudicated, null, 2)}\n`, 'utf8')
+    console.log(`wrote ${opts.out}`)
+  })
+
+human
+  .command('export-pairs')
+  .description('export preference pairs from agreed/adjudicated annotations')
+  .argument('<annotations>', 'annotation JSON array or {"annotations":[...]} file')
+  .option('-o, --out <path>', 'output preference-pair JSON path; defaults to stdout')
+  .action(async (annotationsPath: string, opts: HumanExportPairsOptions) => {
+    const annotations = await readHumanAnnotations(annotationsPath)
+    const report = validateHumanAnnotations(annotations)
+    if (!report.valid) {
+      process.stderr.write(`${formatHumanAnnotationValidation(report)}\n`)
+      process.exitCode = 1
+      return
+    }
+    const pairs = annotationsToPreferencePairs(annotations)
+    const output = `${JSON.stringify(pairs, null, 2)}\n`
+    if (opts.out) {
+      await writeFile(opts.out, output, 'utf8')
+      console.log(`wrote ${opts.out}`)
+    } else {
+      process.stdout.write(output)
     }
   })
 
@@ -824,6 +909,23 @@ function splitOnce(value: string, separator: string): [string, string | undefine
   return [value.slice(0, index), value.slice(index + separator.length)]
 }
 
+async function resolveCliLLMJudge(opts: RunOptions): Promise<LLMJudgeExecutor | undefined> {
+  if (opts.llmJudgeAdapter && opts.llmJudgeRunner) {
+    throw new Error('configure either --llm-judge-adapter or --llm-judge-runner, not both')
+  }
+  const common = {
+    ...(opts.llmJudgeRubricVersion ? { rubricVersion: opts.llmJudgeRubricVersion } : {}),
+  }
+  if (opts.llmJudgeAdapter) {
+    const adapter = await loadLLMJudgeAdapterFromModule(opts.llmJudgeAdapter)
+    return createLLMJudgeExecutor({ adapter, ...common })
+  }
+  if (opts.llmJudgeRunner) {
+    return createRunnerBackedLLMJudgeExecutor(resolveRunner(opts.llmJudgeRunner), common)
+  }
+  return undefined
+}
+
 interface RunOptions {
   dataset: string
   runner: string | string[]
@@ -833,6 +935,10 @@ interface RunOptions {
   concurrency: number
   cacheJudges?: boolean
   cacheTtl?: number
+  judgeCacheDir?: string
+  llmJudgeRunner?: string
+  llmJudgeAdapter?: string
+  llmJudgeRubricVersion?: string
   contractHash?: string
   hashSchemaVersion: string
   domain?: string
@@ -847,6 +953,19 @@ interface RunOptions {
   /** commander sets this to `false` when `--no-ci` is passed. */
   ci?: boolean
   leaderboardEligible?: boolean
+}
+
+interface HumanValidateOptions {
+  json?: boolean
+}
+
+interface HumanAdjudicateOptions {
+  decisions: string
+  out: string
+}
+
+interface HumanExportPairsOptions {
+  out?: string
 }
 
 interface ValidateOptions {
