@@ -7,6 +7,11 @@ import {
   MultiTurnError,
   validateMultiTurnScenario,
 } from './runners/multi-turn.js'
+import {
+  EnvironmentError,
+  isEnvironmentScenario,
+  validateEnvironmentScenario,
+} from './environment.js'
 
 /**
  * Load a dataset from a directory of JSON scenario files or a single JSON
@@ -85,6 +90,18 @@ function parseBundle(raw: string, hint: string): Dataset {
 }
 
 function validateScenarioItem(value: unknown, hint: string): void {
+  if (looksLikeEnvironmentScenario(value)) {
+    try {
+      validateEnvironmentScenario(value, `loader: environment scenario (${hint})`)
+    } catch (error) {
+      if (error instanceof EnvironmentError) {
+        throw new Error(error.message)
+      }
+      throw error
+    }
+    return
+  }
+
   if (looksLikePublicMultiTurn(value)) {
     try {
       validateMultiTurnScenario(value, {
@@ -127,4 +144,11 @@ function looksLikePublicMultiTurn(value: unknown): boolean {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const v = value as Record<string, unknown>
   return v['conversationHistory'] !== undefined || v['multiTurn'] !== undefined
+}
+
+function looksLikeEnvironmentScenario(value: unknown): boolean {
+  if (isEnvironmentScenario(value)) return true
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const v = value as Record<string, unknown>
+  return v['environment'] !== undefined
 }

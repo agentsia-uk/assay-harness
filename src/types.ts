@@ -93,6 +93,103 @@ export interface Scenario {
   meta?: Record<string, unknown>
 }
 
+export interface EnvironmentToolPolicy {
+  /** Empty or omitted means the adapter decides which tools are valid. */
+  allowedToolNames?: string[]
+  /** Hard cap on model-originated tool/action calls for this scenario. */
+  maxCalls?: number
+}
+
+export interface EnvironmentStateValidatorSpec {
+  /** Stable validator id implemented by the environment adapter/domain pack. */
+  id: string
+  /** Serializable validator parameters, e.g. expected final state fields. */
+  params?: Record<string, unknown>
+  /** Optional additive weighting hint for consumers; the core scores pass fraction. */
+  weight?: number
+}
+
+export interface EnvironmentScenarioSpec {
+  /** Adapter/domain-pack id. Domain packs own the implementation behind this id. */
+  environmentId: string
+  /** Serializable setup payload consumed by the environment adapter. */
+  setup?: unknown
+  /** Defaults to 1. The runner bridge refuses non-positive values. */
+  maxSteps?: number
+  /** Public tool/action policy recorded into the trace. */
+  toolPolicy?: EnvironmentToolPolicy
+  /** Executable state validators to run against the final state. Must be non-empty. */
+  validators: EnvironmentStateValidatorSpec[]
+}
+
+export interface EnvironmentScenario extends Scenario {
+  /** Stateful environment contract. Omitted scenarios follow the normal chat path. */
+  environment: EnvironmentScenarioSpec
+}
+
+export interface EnvironmentActionCall {
+  callId?: string
+  /** Tool/action name parsed from model output or adapter-native action envelope. */
+  toolName: string
+  /** Serializable call arguments. */
+  input?: unknown
+  /** Adapter-provided raw public-safe action envelope, redacted before tracing. */
+  raw?: unknown
+}
+
+export interface EnvironmentObservation {
+  ok: boolean
+  output?: unknown
+  error?: {
+    code: string
+    message: string
+  }
+  /** Signals the bridge to stop before maxSteps. */
+  done?: boolean
+}
+
+export interface EnvironmentStateValidationResult {
+  id: string
+  passed: boolean
+  /** Normalised 0 to 1. */
+  value: number
+  rationale?: string
+  meta?: Record<string, unknown>
+}
+
+export interface EnvironmentTraceRedaction {
+  applied: boolean
+  redactedPaths: string[]
+}
+
+export interface EnvironmentTraceStep {
+  index: number
+  responseScenarioId: string
+  modelOutput: string
+  action?: EnvironmentActionCall
+  observation: EnvironmentObservation
+  state: unknown
+}
+
+export interface EnvironmentTrace {
+  schemaVersion: 'assay.environment-trace.v1'
+  scenarioId: string
+  runnerId: string
+  environmentId: string
+  adapterVersion?: string
+  toolPolicy?: EnvironmentToolPolicy
+  setup?: unknown
+  steps: EnvironmentTraceStep[]
+  finalState: unknown
+  validators: EnvironmentStateValidationResult[]
+  redaction: EnvironmentTraceRedaction
+}
+
+export interface EnvironmentRunMetadata {
+  schemaVersion: 'assay.environment-run-metadata.v1'
+  results: EnvironmentTrace[]
+}
+
 export interface Dataset {
   name: string
   /** Semver tag for this dataset. Pinned per release. */
@@ -401,6 +498,8 @@ export interface RunRecord {
         turnResponseScenarioIds: string[]
       }>
     }
+    /** Environment audit trail, present only when a run executes environment scenarios. */
+    environment?: EnvironmentRunMetadata
     /** Additional run-level context: host, env flags, etc. */
     env?: Record<string, unknown>
   }
