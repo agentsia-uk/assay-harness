@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -50,6 +50,14 @@ import {
   readFrontierContractMetadata,
   verifyFrontierQuorum,
 } from './frontier.js'
+import {
+  exportExperimentStoreRecords,
+  exportGitHubActionsAnnotations,
+  exportJUnitXml,
+  exportPortableRunRecord,
+  exportResultJsonl,
+  type InteroperabilityFormat,
+} from './interoperability.js'
 import type {
   ClaimCard,
   Dataset,
@@ -539,6 +547,24 @@ program
     console.log(markdown)
   })
 
+program
+  .command('export')
+  .description('export a RunRecord for external CI, eval, or experiment-store consumers')
+  .argument('<run>', 'path to RunRecord JSON')
+  .requiredOption(
+    '--format <format>',
+    'portable, jsonl, junit, github-annotations, or experiment-store',
+  )
+  .option('-d, --dataset <path>', 'dataset directory or bundle file for public-safe samples')
+  .option('-o, --out <path>', 'output path; defaults to stdout')
+  .option('--pass-threshold <n>', 'CI failure threshold for per-score exports (default 1)', parseThreshold, 1)
+  .action(async (runPath: string, opts: ExportOptions) => {
+    const record = await readRunRecord(runPath)
+    const dataset = opts.dataset ? await loadDataset(opts.dataset) : undefined
+    const content = renderInteropExport(record, dataset, opts)
+    await writeTextOutput(opts.out, content)
+  })
+
 const proof = program
   .command('proof')
   .description('build and verify public release proof bundles')
@@ -870,6 +896,13 @@ interface PublishOptions {
   claimCard?: string
 }
 
+interface ExportOptions {
+  format: string
+  dataset?: string
+  out?: string
+  passThreshold: number
+}
+
 interface ProofBuildOptions {
   run: string
   contract: string
@@ -899,6 +932,59 @@ function isRunRecordLike(value: unknown): value is RunRecord {
 
 function collectOption(value: string, previous: string[]): string[] {
   return [...previous, value]
+}
+
+function parseThreshold(value: string): number {
+  const threshold = Number.parseFloat(value)
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new Error(`expected threshold from 0 to 1, got "${value}"`)
+  }
+  return threshold
+}
+
+function renderInteropExport(
+  record: RunRecord,
+  dataset: Dataset | undefined,
+  opts: ExportOptions,
+): string {
+  const format = parseInteropFormat(opts.format)
+  const exportOptions = { passThreshold: opts.passThreshold }
+  switch (format) {
+    case 'portable':
+      return `${JSON.stringify(exportPortableRunRecord(record, dataset, exportOptions), null, 2)}\n`
+    case 'jsonl':
+      return exportResultJsonl(record, dataset, exportOptions)
+    case 'junit':
+      return exportJUnitXml(record, dataset, exportOptions)
+    case 'github-annotations':
+      return exportGitHubActionsAnnotations(record, dataset, exportOptions)
+    case 'experiment-store':
+      return `${JSON.stringify(exportExperimentStoreRecords(record, dataset, exportOptions), null, 2)}\n`
+  }
+}
+
+function parseInteropFormat(value: string): InteroperabilityFormat {
+  const allowed: InteroperabilityFormat[] = [
+    'portable',
+    'jsonl',
+    'junit',
+    'github-annotations',
+    'experiment-store',
+  ]
+  if ((allowed as string[]).includes(value)) return value as InteroperabilityFormat
+  throw new Error(
+    `unsupported export format "${value}"; expected ${allowed.join(', ')}`,
+  )
+}
+
+async function writeTextOutput(path: string | undefined, content: string): Promise<void> {
+  if (!path || path === '-') {
+    process.stdout.write(content)
+    return
+  }
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, content, 'utf8')
+  console.log(`wrote ${path}`)
 }
 
 async function readTrainingPrompts(path: string): Promise<string[]> {

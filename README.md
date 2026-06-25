@@ -408,7 +408,21 @@ Diagnostics are labelled by claim impact:
 
 ## Interoperability
 
-`exportInspectRunRecord()` and `exportLmEvaluationSummary()` convert native Assay records into external-eval-friendly shapes for Inspect and lm-evaluation-harness style workflows. Native Assay records remain the source of truth because they preserve scenario hashes, privacy classification, scorer metadata, and Modelsmith release boundaries.
+`exportInspectRunRecord()` and `exportLmEvaluationSummary()` convert native Assay records into external-eval-friendly shapes for Inspect and lm-evaluation-harness style workflows. `exportPortableRunRecord()`, `exportResultJsonl()`, `exportJUnitXml()`, `exportGitHubActionsAnnotations()`, and `exportExperimentStoreRecords()` add richer CI and experiment-store exports with schema versions, public-safe samples, scores, aggregate metrics, span-style task records, trace/proof references, and explicit lossiness notes.
+
+```bash
+pnpm assay export runs/latest.json \
+  --dataset artifacts/public-harness-export.json \
+  --format portable \
+  --out artifacts/assay-portable-run.json
+
+pnpm assay export runs/latest.json --format jsonl --out artifacts/assay-results.jsonl
+pnpm assay export runs/latest.json --format junit --pass-threshold 0.8 --out artifacts/junit.xml
+pnpm assay export runs/latest.json --format github-annotations --pass-threshold 0.8
+pnpm assay export runs/latest.json --format experiment-store --out artifacts/experiment-store.json
+```
+
+Native Assay records remain the source of truth because they preserve scenario hashes, privacy classification, scorer metadata, and Modelsmith release boundaries. Interoperability exports are deliberately lossy: private or held-out prompts and derived outputs are omitted, `target` is always `null`, rubric answer-key fields and score rationales are not copied, and raw trace/proof payloads are represented only by public-safe references when present in `RunRecord.meta`.
 
 ## Development
 

@@ -65,7 +65,35 @@ export type {
   ScenarioSetAuditOptions,
   ScenarioSetAuditReport,
 } from './diagnostics.js'
-export { exportInspectRunRecord, exportLmEvaluationSummary } from './interoperability.js'
+export {
+  EXPERIMENT_STORE_SCHEMA_VERSION,
+  GITHUB_ANNOTATIONS_SCHEMA_VERSION,
+  JUNIT_EXPORT_SCHEMA_VERSION,
+  PORTABLE_RUN_EXPORT_SCHEMA_VERSION,
+  RESULT_JSONL_SCHEMA_VERSION,
+  exportExperimentStoreRecords,
+  exportGitHubActionsAnnotations,
+  exportInspectRunRecord,
+  exportJUnitXml,
+  exportLmEvaluationSummary,
+  exportPortableRunRecord,
+  exportResultJsonl,
+} from './interoperability.js'
+export type {
+  ExperimentMetricRecord,
+  ExperimentSpanRecord,
+  ExperimentStoreExport,
+  InspectExport,
+  InteroperabilityExportOptions,
+  InteroperabilityFormat,
+  InteroperabilityLossinessNote,
+  InteroperabilityReference,
+  LmEvaluationSummary,
+  PortableAggregateResult,
+  PortableRunExport,
+  PortableTaskResult,
+  ResultJsonlLine,
+} from './interoperability.js'
 export {
   writeRunRecord,
   readRunRecord,
