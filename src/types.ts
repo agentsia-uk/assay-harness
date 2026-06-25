@@ -144,6 +144,15 @@ export interface Score {
   judge?: string
   judgeProvenance?: JudgeProvenance
   claimStatus?: 'programmatic' | 'analysis-only' | 'benchmark-eligible'
+  /**
+   * Optional additive metadata for repeated samples and slice-aware reporting.
+   * The core only interprets `slices` as arbitrary dimension/value labels.
+   */
+  meta?: {
+    sampleId?: string
+    slices?: Record<string, unknown>
+    [key: string]: unknown
+  }
 }
 
 export interface AxisAggregate {
@@ -153,6 +162,43 @@ export interface AxisAggregate {
   confidenceInterval?: ConfidenceInterval
 }
 
+export interface ReliabilityMetrics {
+  passThreshold: number
+  /** Fraction of scenario/axis groups with at least one passing sample. */
+  passAtK: number
+  /** Fraction of scenario/axis groups where every sample passes. */
+  passPowerK: number
+  meanSamplesPerScenario: number
+  repeatedScenarioCount: number
+  evaluatedScenarioCount: number
+  sampleCount: number
+}
+
+export interface OperationalMetrics {
+  responseCount: number
+  meanLatencyMs: number | null
+  p50LatencyMs: number | null
+  p95LatencyMs: number | null
+  refusalRate: number | null
+  totalPromptTokens: number | null
+  totalCompletionTokens: number | null
+  totalTokens: number | null
+  totalCostUsd: number | null
+  missingMetadata: {
+    latency: number
+    tokenCount: number
+    cost: number
+    refusal: number
+  }
+}
+
+export interface SliceAggregate {
+  axes: Record<string, AxisAggregate>
+  composite: number
+  n: number
+  reliability: ReliabilityMetrics
+}
+
 export interface ModelAggregate {
   runnerId: string
   axes: Record<string, AxisAggregate>
@@ -160,6 +206,9 @@ export interface ModelAggregate {
   composite: number
   /** Weighting rationale; published alongside the release. */
   weights: Record<string, number>
+  reliability?: ReliabilityMetrics
+  operational?: OperationalMetrics
+  slices?: Record<string, SliceAggregate>
   statisticalClaims?: StatisticalClaimMetadata
 }
 

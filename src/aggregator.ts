@@ -2,8 +2,12 @@ import type {
   AxisAggregate,
   ConfidenceInterval,
   ModelAggregate,
+  ModelResponse,
+  OperationalMetrics,
   PairedComparison,
+  ReliabilityMetrics,
   Score,
+  SliceAggregate,
 } from './types.js'
 
 export interface AggregatorOptions {
@@ -13,6 +17,11 @@ export interface AggregatorOptions {
    */
   weights?: Record<string, number>
   confidence?: BootstrapOptions
+  responses?: ModelResponse[]
+  sliceMetadataByScenario?: Record<string, Record<string, unknown>>
+  reliability?: {
+    passThreshold?: number
+  }
 }
 
 export interface BootstrapOptions {
@@ -43,29 +52,36 @@ export function aggregate(scores: Score[], opts: AggregatorOptions = {}): ModelA
 
   const out: ModelAggregate[] = []
   for (const [runnerId, runnerScores] of byRunner) {
-    const byAxis = new Map<string, number[]>()
-    for (const s of runnerScores) {
-      const bucket = byAxis.get(s.axis) ?? []
-      bucket.push(s.value)
-      byAxis.set(s.axis, bucket)
-    }
-
-    const axes: Record<string, AxisAggregate> = {}
-    for (const [axis, values] of byAxis) {
-      axes[axis] = summarise(values, opts.confidence)
-    }
+    const axes = summariseAxes(runnerScores, opts.confidence)
 
     const weights = normaliseWeights(Object.keys(axes), opts.weights ?? {})
     const composite = Object.entries(axes).reduce(
       (acc, [axis, agg]) => acc + (weights[axis] ?? 0) * agg.mean,
       0,
     )
+    const passThreshold = opts.reliability?.passThreshold ?? 0.5
+    const runnerResponses = opts.responses?.filter((response) => response.runnerId === runnerId)
 
     out.push({
       runnerId,
       axes,
       composite,
       weights,
+      reliability: summariseReliability(runnerScores, passThreshold),
+      ...(opts.responses
+        ? { operational: summariseOperational(runnerResponses ?? []) }
+        : {}),
+      ...(opts.sliceMetadataByScenario
+        ? {
+            slices: summariseSlices(
+              runnerScores,
+              weights,
+              passThreshold,
+              opts.confidence,
+              opts.sliceMetadataByScenario,
+            ),
+          }
+        : {}),
       ...(opts.confidence
         ? {
             statisticalClaims: {
@@ -82,6 +98,24 @@ export function aggregate(scores: Score[], opts: AggregatorOptions = {}): ModelA
 
   out.sort((a, b) => b.composite - a.composite)
   return out
+}
+
+function summariseAxes(
+  scores: Score[],
+  confidence?: BootstrapOptions,
+): Record<string, AxisAggregate> {
+  const byAxis = new Map<string, number[]>()
+  for (const s of scores) {
+    const bucket = byAxis.get(s.axis) ?? []
+    bucket.push(s.value)
+    byAxis.set(s.axis, bucket)
+  }
+
+  const axes: Record<string, AxisAggregate> = {}
+  for (const [axis, values] of byAxis) {
+    axes[axis] = summarise(values, confidence)
+  }
+  return axes
 }
 
 function summarise(values: number[], confidence?: BootstrapOptions): AxisAggregate {
@@ -110,6 +144,199 @@ function normaliseWeights(
   const out: Record<string, number> = {}
   for (const [k, v] of Object.entries(raw)) out[k] = v / total
   return out
+}
+
+function summariseReliability(scores: Score[], passThreshold: number): ReliabilityMetrics {
+  const byScenarioAxis = new Map<string, number[]>()
+  for (const score of scores) {
+    const key = `${score.scenarioId}/${score.axis}`
+    const bucket = byScenarioAxis.get(key) ?? []
+    bucket.push(score.value)
+    byScenarioAxis.set(key, bucket)
+  }
+
+  const groups = [...byScenarioAxis.values()]
+  const evaluatedScenarioCount = groups.length
+  if (evaluatedScenarioCount === 0) {
+    return {
+      passThreshold,
+      passAtK: 0,
+      passPowerK: 0,
+      meanSamplesPerScenario: 0,
+      repeatedScenarioCount: 0,
+      evaluatedScenarioCount: 0,
+      sampleCount: 0,
+    }
+  }
+
+  const passAtK = groups.filter((values) => values.some((value) => value >= passThreshold)).length /
+    evaluatedScenarioCount
+  const passPowerK = groups.filter((values) => values.every((value) => value >= passThreshold)).length /
+    evaluatedScenarioCount
+  const sampleCount = groups.reduce((acc, values) => acc + values.length, 0)
+
+  return {
+    passThreshold,
+    passAtK,
+    passPowerK,
+    meanSamplesPerScenario: sampleCount / evaluatedScenarioCount,
+    repeatedScenarioCount: groups.filter((values) => values.length > 1).length,
+    evaluatedScenarioCount,
+    sampleCount,
+  }
+}
+
+function summariseOperational(responses: ModelResponse[]): OperationalMetrics {
+  const latencies = responses
+    .map((response) => response.meta.latencyMs)
+    .filter((value): value is number => Number.isFinite(value))
+    .sort((a, b) => a - b)
+  let totalPromptTokens = 0
+  let totalCompletionTokens = 0
+  let totalTokens = 0
+  let totalCostUsd = 0
+  let tokenResponseCount = 0
+  let costResponseCount = 0
+  let refusalResponseCount = 0
+  let refusalCount = 0
+
+  for (const response of responses) {
+    const extra = response.meta.extra ?? {}
+    const promptTokens = firstFiniteNumber(extra, ['promptTokens', 'inputTokens'])
+    const completionTokens = firstFiniteNumber(extra, ['completionTokens', 'outputTokens'])
+    const explicitTotalTokens = firstFiniteNumber(extra, ['totalTokens'])
+    const responseTotalTokens =
+      explicitTotalTokens ?? (
+        promptTokens !== null || completionTokens !== null
+          ? (promptTokens ?? 0) + (completionTokens ?? 0)
+          : null
+      )
+    if (promptTokens !== null || completionTokens !== null || responseTotalTokens !== null) {
+      totalPromptTokens += promptTokens ?? 0
+      totalCompletionTokens += completionTokens ?? 0
+      totalTokens += responseTotalTokens ?? 0
+      tokenResponseCount += 1
+    }
+
+    const costUsd = firstFiniteNumber(extra, ['costUsd', 'totalCostUsd'])
+    if (costUsd !== null) {
+      totalCostUsd += costUsd
+      costResponseCount += 1
+    }
+
+    const refused = detectRefusal(response)
+    if (refused !== null) {
+      refusalResponseCount += 1
+      if (refused) refusalCount += 1
+    }
+  }
+
+  return {
+    responseCount: responses.length,
+    meanLatencyMs: latencies.length > 0 ? mean(latencies) : null,
+    p50LatencyMs: latencies.length > 0 ? percentile(latencies, 0.5) : null,
+    p95LatencyMs: latencies.length > 0 ? percentile(latencies, 0.95) : null,
+    refusalRate: refusalResponseCount > 0 ? refusalCount / refusalResponseCount : null,
+    totalPromptTokens: tokenResponseCount > 0 ? totalPromptTokens : null,
+    totalCompletionTokens: tokenResponseCount > 0 ? totalCompletionTokens : null,
+    totalTokens: tokenResponseCount > 0 ? totalTokens : null,
+    totalCostUsd: costResponseCount > 0 ? totalCostUsd : null,
+    missingMetadata: {
+      latency: responses.length - latencies.length,
+      tokenCount: responses.length - tokenResponseCount,
+      cost: responses.length - costResponseCount,
+      refusal: responses.length - refusalResponseCount,
+    },
+  }
+}
+
+function summariseSlices(
+  scores: Score[],
+  weights: Record<string, number>,
+  passThreshold: number,
+  confidence: BootstrapOptions | undefined,
+  sliceMetadataByScenario: Record<string, Record<string, unknown>>,
+): Record<string, SliceAggregate> {
+  const bySlice = new Map<string, Score[]>()
+  for (const score of scores) {
+    for (const slice of sliceLabels(score, sliceMetadataByScenario)) {
+      const bucket = bySlice.get(slice) ?? []
+      bucket.push(score)
+      bySlice.set(slice, bucket)
+    }
+  }
+
+  return Object.fromEntries(
+    [...bySlice.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([slice, sliceScores]) => {
+        const axes = summariseAxes(sliceScores, confidence)
+        const composite = Object.entries(axes).reduce(
+          (acc, [axis, agg]) => acc + (weights[axis] ?? 0) * agg.mean,
+          0,
+        )
+        return [
+          slice,
+          {
+            axes,
+            composite,
+            n: sliceScores.length,
+            reliability: summariseReliability(sliceScores, passThreshold),
+          },
+        ]
+      }),
+  )
+}
+
+function sliceLabels(
+  score: Score,
+  sliceMetadataByScenario: Record<string, Record<string, unknown>>,
+): string[] {
+  const metadata = {
+    ...(sliceMetadataByScenario[score.scenarioId] ?? {}),
+    ...(score.meta?.slices ?? {}),
+  }
+  const labels: string[] = []
+  for (const [dimension, value] of Object.entries(metadata)) {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      labels.push(`${dimension}=${String(value)}`)
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (
+          typeof item === 'string' ||
+          typeof item === 'number' ||
+          typeof item === 'boolean'
+        ) {
+          labels.push(`${dimension}=${String(item)}`)
+        }
+      }
+    }
+  }
+  return labels.length > 0 ? labels.sort() : ['__unsliced__']
+}
+
+function firstFiniteNumber(
+  obj: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    const value = obj[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
+}
+
+function detectRefusal(response: ModelResponse): boolean | null {
+  const extra = response.meta.extra ?? {}
+  if (typeof extra['refusal'] === 'boolean') return extra['refusal']
+  const reason = extra['finishReason'] ?? extra['stopReason']
+  if (typeof reason === 'string') {
+    const normalized = reason.toLowerCase()
+    if (normalized.includes('refusal') || normalized.includes('content_filter')) {
+      return true
+    }
+  }
+  return false
 }
 
 export function comparePairedScores(

@@ -189,8 +189,13 @@ program
               confidenceLevel: opts.ciLevel,
               seed: opts.ciSeed,
             },
+            responses,
+            sliceMetadataByScenario: sliceMetadataByScenario(dataset),
           }
-        : {},
+        : {
+            responses,
+            sliceMetadataByScenario: sliceMetadataByScenario(dataset),
+          },
     )
 
     // Tier-1 #3 + #4: enforce the publication integrity gates before a run can
@@ -860,6 +865,19 @@ function emitCompareWarnings(warnings: string[]): void {
   for (const warning of warnings) {
     process.stderr.write(`warning: ${warning}\n`)
   }
+}
+
+function sliceMetadataByScenario(dataset: Dataset): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    dataset.scenarios.map((scenario) => [
+      scenario.id,
+      isRecord(scenario.meta?.['slices']) ? scenario.meta['slices'] : {},
+    ]),
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function assertLeaderboardEligiblePublish(

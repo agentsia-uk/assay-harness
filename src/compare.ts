@@ -1,11 +1,28 @@
 import { comparePairedScores } from './aggregator.js'
 import type { BootstrapOptions } from './aggregator.js'
-import type { ConfidenceInterval, RunRecord, Score } from './types.js'
+import type { ConfidenceInterval, ModelAggregate, RunRecord, Score } from './types.js'
 
 export interface ScenarioComparison {
   scenarioId: string
   score1: number | null
   score2: number | null
+  delta: number | null
+  direction: 'improvement' | 'regression' | 'unchanged' | 'missing'
+}
+
+export interface ReliabilityDelta {
+  passAtK: number | null
+  passPowerK: number | null
+  meanLatencyMs: number | null
+  p95LatencyMs: number | null
+  refusalRate: number | null
+  totalCostUsd: number | null
+}
+
+export interface SliceDelta {
+  slice: string
+  run1Composite: number | null
+  run2Composite: number | null
   delta: number | null
   direction: 'improvement' | 'regression' | 'unchanged' | 'missing'
 }
@@ -46,6 +63,8 @@ export interface CompareResult {
   run2Runners: string[]
   rows: ScenarioComparison[]
   compositeDelta: number | null
+  reliabilityDelta?: ReliabilityDelta
+  sliceDeltas: SliceDelta[]
   interval: CompareIntervalMetadata
 }
 
@@ -134,8 +153,90 @@ export function compareRuns(
     run2Runners: run2.runners,
     rows,
     compositeDelta,
+    reliabilityDelta: compareAggregateReliability(
+      aggregateForRunner(run1),
+      aggregateForRunner(run2),
+    ),
+    sliceDeltas: compareAggregateSlices(
+      aggregateForRunner(run1),
+      aggregateForRunner(run2),
+    ),
     interval,
   }
+}
+
+function aggregateForRunner(run: RunRecord): ModelAggregate | null {
+  const runnerId = run.runners[0]
+  return run.aggregates.find((aggregate) => aggregate.runnerId === runnerId) ??
+    run.aggregates[0] ??
+    null
+}
+
+function compareAggregateReliability(
+  aggregate1: ModelAggregate | null,
+  aggregate2: ModelAggregate | null,
+): ReliabilityDelta | undefined {
+  if (!aggregate1 || !aggregate2) return undefined
+  if (!aggregate1.reliability && !aggregate1.operational) return undefined
+  if (!aggregate2.reliability && !aggregate2.operational) return undefined
+  return {
+    passAtK: subtractNullable(
+      aggregate2.reliability?.passAtK ?? null,
+      aggregate1.reliability?.passAtK ?? null,
+    ),
+    passPowerK: subtractNullable(
+      aggregate2.reliability?.passPowerK ?? null,
+      aggregate1.reliability?.passPowerK ?? null,
+    ),
+    meanLatencyMs: subtractNullable(
+      aggregate2.operational?.meanLatencyMs ?? null,
+      aggregate1.operational?.meanLatencyMs ?? null,
+    ),
+    p95LatencyMs: subtractNullable(
+      aggregate2.operational?.p95LatencyMs ?? null,
+      aggregate1.operational?.p95LatencyMs ?? null,
+    ),
+    refusalRate: subtractNullable(
+      aggregate2.operational?.refusalRate ?? null,
+      aggregate1.operational?.refusalRate ?? null,
+    ),
+    totalCostUsd: subtractNullable(
+      aggregate2.operational?.totalCostUsd ?? null,
+      aggregate1.operational?.totalCostUsd ?? null,
+    ),
+  }
+}
+
+function compareAggregateSlices(
+  aggregate1: ModelAggregate | null,
+  aggregate2: ModelAggregate | null,
+): SliceDelta[] {
+  const slices1 = aggregate1?.slices ?? {}
+  const slices2 = aggregate2?.slices ?? {}
+  const allSlices = [...new Set([...Object.keys(slices1), ...Object.keys(slices2)])].sort()
+  return allSlices.map((slice) => {
+    const run1Composite = slices1[slice]?.composite ?? null
+    const run2Composite = slices2[slice]?.composite ?? null
+    const delta = subtractNullable(run2Composite, run1Composite)
+    return {
+      slice,
+      run1Composite,
+      run2Composite,
+      delta,
+      direction: directionForDelta(delta),
+    }
+  })
+}
+
+function subtractNullable(candidate: number | null, baseline: number | null): number | null {
+  return candidate !== null && baseline !== null ? candidate - baseline : null
+}
+
+function directionForDelta(delta: number | null): SliceDelta['direction'] {
+  if (delta === null) return 'missing'
+  if (delta > 0.001) return 'improvement'
+  if (delta < -0.001) return 'regression'
+  return 'unchanged'
 }
 
 function buildIntervalMetadata(args: {
@@ -374,6 +475,28 @@ export function formatCompareTable(result: CompareResult): string {
       `composite delta: ${d >= 0 ? '+' : ''}${d.toFixed(4)}  (mean across ${result.rows.filter((r) => r.delta !== null).length} paired scenarios)`,
     )
   }
+  if (result.reliabilityDelta) {
+    const passAtK = formatSignedFixed(result.reliabilityDelta.passAtK, 4)
+    const passPowerK = formatSignedFixed(result.reliabilityDelta.passPowerK, 4)
+    lines.push(`reliability deltas: pass@k ${passAtK}, pass^k ${passPowerK}`)
+
+    const latency = formatSignedFixed(result.reliabilityDelta.meanLatencyMs, 2)
+    const refusalRate = formatSignedFixed(result.reliabilityDelta.refusalRate, 4)
+    const cost = formatSignedFixed(result.reliabilityDelta.totalCostUsd, 6)
+    lines.push(
+      `operational deltas: latency_ms ${latency}, refusal_rate ${refusalRate}, cost_usd ${cost}`,
+    )
+  }
+  if (result.sliceDeltas.length > 0) {
+    lines.push('slice deltas:')
+    for (const row of result.sliceDeltas) {
+      lines.push(
+        `  ${row.slice}: ${formatNullable(row.run1Composite)} -> ` +
+          `${formatNullable(row.run2Composite)} ` +
+          `(${formatSignedFixed(row.delta, 4)}) ${DIRECTION_SYMBOL[row.direction]}`,
+      )
+    }
+  }
   if (result.interval.status === 'available' && result.interval.confidenceInterval) {
     const ci = result.interval.confidenceInterval
     lines.push(
@@ -392,4 +515,13 @@ export function formatCompareTable(result: CompareResult): string {
   }
 
   return lines.join('\n')
+}
+
+function formatSignedFixed(value: number | null, digits: number): string {
+  if (value === null) return 'n/a'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`
+}
+
+function formatNullable(value: number | null): string {
+  return value === null ? 'n/a' : value.toFixed(4)
 }
