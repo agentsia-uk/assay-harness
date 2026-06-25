@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { compareRuns, formatCompareTable } from '../src/compare.js'
-import type { RunRecord } from '../src/types.js'
+import type { ModelAggregate, RunRecord } from '../src/types.js'
 
 function makeRun(
   id: string,
   scores: Array<{ scenarioId: string; value: number; axis?: string }>,
-  opts: { scenarioSetHash?: string, runners?: string[] } = {},
+  opts: { scenarioSetHash?: string, runners?: string[], aggregates?: ModelAggregate[] } = {},
 ): RunRecord {
   const runners = opts.runners ?? [`stub:${id}`]
   return {
@@ -21,7 +21,7 @@ function makeRun(
       axis: s.axis ?? 'quality',
       value: s.value,
     })),
-    aggregates: [],
+    aggregates: opts.aggregates ?? [],
     meta: { harnessVersion: '0.0.0' },
   }
 }
@@ -210,6 +210,82 @@ describe('compareRuns', () => {
 
     expect(() => compareRuns(run1, run2)).toThrow(/contains multiple runners/)
   })
+
+  it('reports reliability deltas and slice deltas from aggregate metadata', () => {
+    const run1 = makeRun('baseline', [{ scenarioId: 's1', value: 0.4 }], {
+      aggregates: [
+        makeAggregate('stub:baseline', {
+          passAtK: 0.5,
+          passPowerK: 0.25,
+          meanLatencyMs: 200,
+          refusalRate: 0.2,
+          slices: {
+            'family=facts': 0.6,
+            'family=planning': 0.4,
+          },
+        }),
+      ],
+    })
+    const run2 = makeRun('candidate', [{ scenarioId: 's1', value: 0.7 }], {
+      aggregates: [
+        makeAggregate('stub:candidate', {
+          passAtK: 0.75,
+          passPowerK: 0.5,
+          meanLatencyMs: 260,
+          refusalRate: 0.1,
+          slices: {
+            'family=facts': 0.7,
+            'family=planning': 0.35,
+            'family=new': 0.9,
+          },
+        }),
+      ],
+    })
+
+    const result = compareRuns(run1, run2)
+
+    expect(result.reliabilityDelta).toMatchObject({
+      passAtK: 0.25,
+      passPowerK: 0.25,
+      meanLatencyMs: 60,
+      refusalRate: -0.1,
+    })
+    expect(result.sliceDeltas.map((row) => ({
+      slice: row.slice,
+      run1Composite: row.run1Composite,
+      run2Composite: row.run2Composite,
+      direction: row.direction,
+    }))).toEqual([
+      {
+        slice: 'family=facts',
+        run1Composite: 0.6,
+        run2Composite: 0.7,
+        direction: 'improvement',
+      },
+      {
+        slice: 'family=new',
+        run1Composite: null,
+        run2Composite: 0.9,
+        direction: 'missing',
+      },
+      {
+        slice: 'family=planning',
+        run1Composite: 0.4,
+        run2Composite: 0.35,
+        direction: 'regression',
+      },
+    ])
+    expect(result.sliceDeltas[0]?.delta).toBeCloseTo(0.1)
+    expect(result.sliceDeltas[1]?.delta).toBeNull()
+    expect(result.sliceDeltas[2]?.delta).toBeCloseTo(-0.05)
+
+    const table = formatCompareTable(result)
+    expect(table).toContain('reliability deltas: pass@k +0.2500, pass^k +0.2500')
+    expect(table).toContain('operational deltas: latency_ms +60.00, refusal_rate -0.1000')
+    expect(table).toContain('slice deltas:')
+    expect(table).toContain('family=facts')
+    expect(table).toContain('+0.1000')
+  })
 })
 
 describe('formatCompareTable', () => {
@@ -238,3 +314,68 @@ describe('formatCompareTable', () => {
     expect(table).toContain('warning: scenario-set hashes differ')
   })
 })
+
+function makeAggregate(
+  runnerId: string,
+  opts: {
+    passAtK: number
+    passPowerK: number
+    meanLatencyMs: number
+    refusalRate: number
+    slices: Record<string, number>
+  },
+): ModelAggregate {
+  return {
+    runnerId,
+    axes: {
+      quality: { mean: 0.5, variance: 0, n: 1 },
+    },
+    composite: 0.5,
+    weights: { quality: 1 },
+    reliability: {
+      passThreshold: 0.5,
+      passAtK: opts.passAtK,
+      passPowerK: opts.passPowerK,
+      meanSamplesPerScenario: 1,
+      repeatedScenarioCount: 0,
+      evaluatedScenarioCount: 1,
+      sampleCount: 1,
+    },
+    operational: {
+      responseCount: 1,
+      meanLatencyMs: opts.meanLatencyMs,
+      p50LatencyMs: opts.meanLatencyMs,
+      p95LatencyMs: opts.meanLatencyMs,
+      refusalRate: opts.refusalRate,
+      totalPromptTokens: null,
+      totalCompletionTokens: null,
+      totalTokens: null,
+      totalCostUsd: null,
+      missingMetadata: {
+        latency: 0,
+        tokenCount: 1,
+        cost: 1,
+        refusal: 0,
+      },
+    },
+    slices: Object.fromEntries(
+      Object.entries(opts.slices).map(([slice, composite]) => [
+        slice,
+        {
+          axes: { quality: { mean: composite, variance: 0, n: 1 } },
+          composite,
+          n: 1,
+          reliability: {
+            passThreshold: 0.5,
+            passAtK: composite >= 0.5 ? 1 : 0,
+            passPowerK: composite >= 0.5 ? 1 : 0,
+            meanSamplesPerScenario: 1,
+            repeatedScenarioCount: 0,
+            evaluatedScenarioCount: 1,
+            sampleCount: 1,
+          },
+        },
+      ]),
+    ),
+  }
+}

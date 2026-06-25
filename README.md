@@ -286,6 +286,13 @@ intervals when deciding whether a candidate model has genuinely improved over a
 baseline. Small deltas without interval support should be treated as
 descriptive, not as a promotion claim.
 
+Aggregates also carry additive reliability and operational summaries when run
+metadata is available: pass@k, pass^k, sample counts, latency, token/cost
+totals, refusal rate, and arbitrary `scenario.meta.slices` breakdowns. Missing
+slice labels are grouped under `__unsliced__` so callers can distinguish absent
+metadata from a real slice. `assay compare` includes reliability deltas and
+slice composite deltas when both RunRecords contain those aggregate fields.
+
 ```bash
 pnpm assay compare runs/baseline.json runs/candidate.json
 pnpm assay compare runs/baseline.json runs/candidate.json --json
