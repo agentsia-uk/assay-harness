@@ -300,6 +300,61 @@ describe('scenario diagnostics and interoperability exports', () => {
     expect(report.summary.claimBlockingKinds).toContain('artifact-doc-drift')
   })
 
+  it('does not parse numeric hash prefixes as scenario counts in release docs', () => {
+    const expectedHash = `9${'a'.repeat(63)}`
+    const report = auditScenarioSet(dataset, {
+      releaseDocDriftSeverity: 'claim-blocking',
+      releaseArtifacts: [
+        {
+          id: 'release-contract.json',
+          data: {
+            scenarioSetHash: expectedHash,
+            scenarioSetHashMetadata: { scenarioCount: 2 },
+          },
+        },
+      ],
+      releaseDocuments: [
+        {
+          id: 'README.md',
+          content: `The release pins scenario-set hash ${expectedHash}.`,
+        },
+      ],
+    })
+
+    const driftFindings = report.findings.filter((finding) => finding.kind === 'artifact-doc-drift')
+    expect(driftFindings.map((finding) => finding.data?.['field'])).not.toContain('scenarioCount')
+  })
+
+  it('checks top-level claim-card status during release doc drift audits', () => {
+    const report = auditScenarioSet(dataset, {
+      releaseDocDriftSeverity: 'claim-blocking',
+      releaseArtifacts: [
+        {
+          id: 'claim-card.json',
+          data: {
+            schemaVersion: 'assay.claim-card.v1',
+            status: 'allowed',
+          },
+        },
+      ],
+      releaseDocuments: [
+        {
+          id: 'README.md',
+          content: 'The claim gate is blocked.',
+        },
+      ],
+    })
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      kind: 'artifact-doc-drift',
+      data: expect.objectContaining({
+        field: 'claimState',
+        expected: 'allowed',
+        actual: 'blocked',
+      }),
+    }))
+  })
+
   it('flags conflicting rubric gates as claim-blocking diagnostics', () => {
     const conflictingDataset: Dataset = {
       ...dataset,

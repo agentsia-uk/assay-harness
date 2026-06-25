@@ -1290,7 +1290,7 @@ function extractReleaseDocumentReferences(content: string): ReleaseDocumentRefer
   for (const match of content.matchAll(/\b(\d+)\s+scenarios?\b/gi)) {
     scenarioCounts.push({ value: Number(match[1]), excerpt: match[0].trim() })
   }
-  for (const match of content.matchAll(/\bscenarios?\b[^\n\d]{0,24}(\d+)/gi)) {
+  for (const match of content.matchAll(/\bscenarios?\b(?![-\s]?set\b)[^\n\d]{0,24}(\d+)/gi)) {
     scenarioCounts.push({ value: Number(match[1]), excerpt: match[0].trim() })
   }
 
@@ -1371,10 +1371,17 @@ function extractReleaseClaimFacts(value: unknown): ReleaseClaimFacts {
 
   const claimState =
     getStringPath(value, ['claimGate', 'status']) ??
-    getStringPath(value, ['claimState'])
+    getStringPath(value, ['claimState']) ??
+    getClaimCardStatus(value)
   if (claimState) facts.claimState = claimState
 
   return facts
+}
+
+function getClaimCardStatus(value: Record<string, unknown>): string | undefined {
+  if (getStringPath(value, ['schemaVersion']) !== 'assay.claim-card.v1') return undefined
+  const status = getStringPath(value, ['status'])
+  return status === 'allowed' || status === 'blocked' ? status : undefined
 }
 
 function mergeMissingReleaseFacts(target: ReleaseClaimFacts, source: ReleaseClaimFacts): void {
