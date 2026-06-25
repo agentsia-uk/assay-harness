@@ -52,7 +52,11 @@ import { compareRuns, formatCompareTable } from './compare.js'
 import { buildMarkdownReport, createGist } from './publish.js'
 import {
   buildProofBundleManifestFromFiles,
+  formatProofReplayResult,
   formatProofBundleManifest,
+  formatProofVerificationResult,
+  replayProofBundle,
+  verifyProofBundle,
   writeProofBundleManifest,
 } from './proof.js'
 import { createStderrLogger } from './progress.js'
@@ -748,12 +752,14 @@ proof
   .requiredOption('--run <path>', 'RunRecord JSON path')
   .requiredOption('--contract <path>', 'release-contract JSON path')
   .option('-d, --dataset <path>', 'dataset directory or bundle file to recompute scenario-set hash')
+  .option('--trace-bundle <path>', 'environment trace bundle JSON path to checksum into the proof manifest')
   .option('-o, --out <path>', 'output proof manifest JSON path; defaults to stdout')
   .action(async (opts: ProofBuildOptions) => {
     const manifest = await buildProofBundleManifestFromFiles({
       runPath: opts.run,
       releaseContractPath: opts.contract,
       ...(opts.dataset ? { datasetPath: opts.dataset } : {}),
+      ...(opts.traceBundle ? { traceBundlePath: opts.traceBundle } : {}),
       commandLine: process.argv.slice(1),
     })
 
@@ -764,6 +770,83 @@ proof
     }
 
     console.log(formatProofBundleManifest(manifest))
+  })
+
+proof
+  .command('verify')
+  .description('verify a proof manifest against its source RunRecord, release contract, and optional claim inputs')
+  .argument('<proof>', 'proof manifest JSON path')
+  .requiredOption('--run <path>', 'RunRecord JSON path')
+  .requiredOption('--contract <path>', 'release-contract JSON path')
+  .option('-d, --dataset <path>', 'dataset directory or bundle file to recompute scenario-set hash')
+  .option('--claim-card <path>', 'machine-readable claim card for leaderboard-eligible verification')
+  .option('--trace-bundle <path>', 'environment trace bundle JSON path declared by the proof manifest')
+  .option('--leaderboard-eligible', 'enforce the shared claim-card eligibility gate')
+  .option('--json', 'output verification result as JSON')
+  .action(async (proofPath: string, opts: ProofVerifyOptions) => {
+    const [manifest, record, releaseContract, dataset, claimCard, traceBundle] = await Promise.all([
+      readJson(proofPath),
+      readRunRecord(opts.run),
+      readJson(opts.contract),
+      opts.dataset ? loadDataset(opts.dataset) : Promise.resolve(undefined),
+      opts.claimCard ? readJson(opts.claimCard) as Promise<ClaimCard> : Promise.resolve(undefined),
+      opts.traceBundle ? readJson(opts.traceBundle) : Promise.resolve(undefined),
+    ])
+    const result = verifyProofBundle({
+      manifest,
+      runRecord: record,
+      releaseContract,
+      ...(dataset ? { dataset } : {}),
+      ...(claimCard ? { claimCard } : {}),
+      ...(traceBundle !== undefined ? { traceBundle } : {}),
+      ...(opts.leaderboardEligible ? { leaderboardEligible: true } : {}),
+    })
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else if (result.valid) {
+      console.log(formatProofVerificationResult(result))
+    } else {
+      process.stderr.write(`${formatProofVerificationResult(result)}\n`)
+    }
+
+    if (!result.valid) process.exitCode = 1
+  })
+
+proof
+  .command('replay')
+  .description('replay pinned model outputs and verify deterministic scores, aggregates, and proof inputs')
+  .requiredOption('--run <path>', 'RunRecord JSON path with pinned model outputs')
+  .requiredOption('--contract <path>', 'release-contract JSON path')
+  .requiredOption('-d, --dataset <path>', 'dataset directory or bundle file used by the RunRecord')
+  .option('--proof <path>', 'optional proof manifest JSON path to compare against regenerated proof inputs')
+  .option('--trace-bundle <path>', 'environment trace bundle JSON path declared by the proof manifest')
+  .option('--json', 'output replay result as JSON')
+  .action(async (opts: ProofReplayOptions) => {
+    const [record, releaseContract, dataset, proofManifest, traceBundle] = await Promise.all([
+      readRunRecord(opts.run),
+      readJson(opts.contract),
+      loadDataset(opts.dataset),
+      opts.proof ? readJson(opts.proof) : Promise.resolve(undefined),
+      opts.traceBundle ? readJson(opts.traceBundle) : Promise.resolve(undefined),
+    ])
+    const result = replayProofBundle({
+      runRecord: record,
+      releaseContract,
+      dataset,
+      ...(proofManifest !== undefined ? { proofManifest } : {}),
+      ...(traceBundle !== undefined ? { traceBundle } : {}),
+    })
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else if (result.valid) {
+      console.log(formatProofReplayResult(result))
+    } else {
+      process.stderr.write(`${formatProofReplayResult(result)}\n`)
+    }
+
+    if (!result.valid) process.exitCode = 1
   })
 
 const frontier = program
@@ -1178,7 +1261,27 @@ interface ProofBuildOptions {
   run: string
   contract: string
   dataset?: string
+  traceBundle?: string
   out?: string
+}
+
+interface ProofVerifyOptions {
+  run: string
+  contract: string
+  dataset?: string
+  claimCard?: string
+  traceBundle?: string
+  leaderboardEligible?: boolean
+  json?: boolean
+}
+
+interface ProofReplayOptions {
+  run: string
+  contract: string
+  dataset: string
+  proof?: string
+  traceBundle?: string
+  json?: boolean
 }
 
 interface FrontierVerifyOptions {
@@ -1256,6 +1359,10 @@ async function writeTextOutput(path: string | undefined, content: string): Promi
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, content, 'utf8')
   console.log(`wrote ${path}`)
+}
+
+async function readJson(path: string): Promise<unknown> {
+  return JSON.parse(await readFile(path, 'utf8')) as unknown
 }
 
 async function readTrainingPrompts(path: string): Promise<string[]> {

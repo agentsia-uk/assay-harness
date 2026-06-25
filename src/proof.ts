@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { aggregate, type AggregatorOptions, type BootstrapOptions } from './aggregator.js'
 import { loadDataset } from './loader.js'
 import { redactCommandLine, redactCommandLineText } from './redact.js'
+import { score } from './rubric.js'
 import { computeScenarioSetHash, readRunRecord } from './serialiser.js'
-import type { Dataset, ModelAggregate, ModelResponse, RunRecord } from './types.js'
-import { validateRunRecord } from './validate.js'
+import type { ClaimCard, Dataset, ModelAggregate, ModelResponse, RunRecord, Score } from './types.js'
+import { ClaimEligibilityError, assertRunClaimEligible, validateRunRecord } from './validate.js'
 
 export const PROOF_BUNDLE_SCHEMA_VERSION = 'assay.proof-bundle.v1'
 export const PROOF_HASH_SCHEMA = {
@@ -57,6 +59,7 @@ export interface ProofBundleManifest {
     releaseContract: string
     runnerMetadata: string
     publicResults: string
+    traceBundle?: string
   }
   reproducibilitySelfTest: {
     status: 'passed' | 'failed'
@@ -125,6 +128,7 @@ export interface BuildProofBundleManifestOptions {
   releaseContract: unknown
   dataset?: Dataset
   commandLine?: string | string[]
+  traceBundle?: unknown
 }
 
 export interface BuildProofBundleManifestFromFilesOptions {
@@ -132,17 +136,52 @@ export interface BuildProofBundleManifestFromFilesOptions {
   releaseContractPath: string
   datasetPath?: string
   commandLine?: string | string[]
+  traceBundlePath?: string
 }
 
 export interface ValidateProofBundleInputs {
   runRecord: RunRecord
   releaseContract: unknown
   dataset?: Dataset
+  traceBundle?: unknown
 }
 
 export interface ProofBundleValidationResult {
   valid: boolean
   errors: string[]
+}
+
+export interface ProofVerificationCheck {
+  name: string
+  status: 'passed' | 'failed'
+  detail: string
+}
+
+export interface VerifyProofBundleOptions extends ValidateProofBundleInputs {
+  manifest: unknown
+  claimCard?: ClaimCard
+  leaderboardEligible?: boolean
+  now?: Date | string
+}
+
+export interface ProofVerificationResult {
+  valid: boolean
+  errors: string[]
+  checks: ProofVerificationCheck[]
+}
+
+export interface ReplayProofBundleOptions {
+  runRecord: RunRecord
+  releaseContract: unknown
+  dataset: Dataset
+  traceBundle?: unknown
+  proofManifest?: unknown
+}
+
+export interface ProofReplayResult extends ProofVerificationResult {
+  replayed: boolean
+  scoreCount: number
+  aggregateCount: number
 }
 
 export async function buildProofBundleManifestFromFiles(
@@ -151,11 +190,15 @@ export async function buildProofBundleManifestFromFiles(
   const runRecord = await readRunRecord(options.runPath)
   const releaseContract = JSON.parse(await readFile(options.releaseContractPath, 'utf8')) as unknown
   const dataset = options.datasetPath ? await loadDataset(options.datasetPath) : undefined
+  const traceBundle = options.traceBundlePath
+    ? JSON.parse(await readFile(options.traceBundlePath, 'utf8')) as unknown
+    : undefined
   return buildProofBundleManifest({
     runRecord,
     releaseContract,
     ...(dataset ? { dataset } : {}),
     ...(options.commandLine ? { commandLine: options.commandLine } : {}),
+    ...(traceBundle !== undefined ? { traceBundle } : {}),
   })
 }
 
@@ -173,6 +216,7 @@ export function buildProofBundleManifest(
   const releaseContractHash = checksumObject(options.releaseContract)
   const runnerMetadataHash = checksumObject(runnerMetadata)
   const publicResultsHash = checksumObject(publicResults)
+  const traceBundleHash = options.traceBundle !== undefined ? checksumObject(options.traceBundle) : undefined
   const runScenarioSetHash = options.runRecord.scenarioSetHash ?? null
   const releaseScenarioSetHash = extractReleaseContractScenarioSetHash(options.releaseContract)
   const datasetScenarioSetHash = options.dataset ? computeScenarioSetHash(options.dataset) : null
@@ -185,6 +229,41 @@ export function buildProofBundleManifest(
   const scenarioSetHashConsistent =
     allScenarioHashes.length > 0 && allScenarioHashes.every((value) => value === allScenarioHashes[0])
   const redactedCommandLine = resolveRedactedCommandLine(options.runRecord, options.commandLine)
+
+  const proofIndex: ProofIndexEntry[] = [
+    {
+      id: 'run-record',
+      kind: 'redacted-run-record-canonical-json',
+      checksum: runRecordHash,
+      public: false,
+    },
+    {
+      id: 'release-contract',
+      kind: 'release-contract-canonical-json',
+      checksum: releaseContractHash,
+      public: true,
+    },
+    {
+      id: 'runner-metadata',
+      kind: 'runner-metadata-summary',
+      checksum: runnerMetadataHash,
+      public: true,
+    },
+    {
+      id: 'public-results',
+      kind: 'aggregate-results-summary',
+      checksum: publicResultsHash,
+      public: true,
+    },
+  ]
+  if (traceBundleHash) {
+    proofIndex.push({
+      id: 'trace-bundle',
+      kind: 'environment-trace-bundle-canonical-json',
+      checksum: traceBundleHash,
+      public: false,
+    })
+  }
 
   const manifestCore: Omit<ProofBundleManifest, 'reproducibilitySelfTest'> = {
     schemaVersion: PROOF_BUNDLE_SCHEMA_VERSION,
@@ -211,37 +290,13 @@ export function buildProofBundleManifest(
     releaseContract: releaseContractSummary,
     runnerMetadata,
     publicResults,
-    proofIndex: [
-      {
-        id: 'run-record',
-        kind: 'redacted-run-record-canonical-json',
-        checksum: runRecordHash,
-        public: false,
-      },
-      {
-        id: 'release-contract',
-        kind: 'release-contract-canonical-json',
-        checksum: releaseContractHash,
-        public: true,
-      },
-      {
-        id: 'runner-metadata',
-        kind: 'runner-metadata-summary',
-        checksum: runnerMetadataHash,
-        public: true,
-      },
-      {
-        id: 'public-results',
-        kind: 'aggregate-results-summary',
-        checksum: publicResultsHash,
-        public: true,
-      },
-    ],
+    proofIndex,
     checksums: {
       runRecord: runRecordHash,
       releaseContract: releaseContractHash,
       runnerMetadata: runnerMetadataHash,
       publicResults: publicResultsHash,
+      ...(traceBundleHash ? { traceBundle: traceBundleHash } : {}),
     },
   }
 
@@ -262,37 +317,70 @@ export function validateProofBundleManifest(
   inputs: ValidateProofBundleInputs,
 ): ProofBundleValidationResult {
   const errors: string[] = []
+  const manifestObject = asRecord(manifest)
+  const checksums = asRecord(manifestObject['checksums'])
 
-  if (manifest.schemaVersion !== PROOF_BUNDLE_SCHEMA_VERSION) {
+  if (manifestObject['schemaVersion'] !== PROOF_BUNDLE_SCHEMA_VERSION) {
     errors.push(`schemaVersion must be ${PROOF_BUNDLE_SCHEMA_VERSION}`)
   }
-  if (manifest.hashSchema.algorithm !== PROOF_HASH_SCHEMA.algorithm) {
-    errors.push(`hashSchema.algorithm must be ${PROOF_HASH_SCHEMA.algorithm}`)
-  }
+  errors.push(...validateProofHashSchema(manifestObject['hashSchema']))
+  errors.push(...validateProofIndex(manifestObject['proofIndex'], checksums))
 
   const expectedRunRecord = checksumObject(redactRunRecord(inputs.runRecord))
-  if (manifest.checksums.runRecord !== expectedRunRecord) {
+  if (checksums['runRecord'] !== expectedRunRecord) {
     errors.push('runRecord checksum does not match the supplied RunRecord')
   }
 
   const expectedReleaseContract = checksumObject(inputs.releaseContract)
-  if (manifest.checksums.releaseContract !== expectedReleaseContract) {
+  if (checksums['releaseContract'] !== expectedReleaseContract) {
     errors.push('releaseContract checksum does not match the supplied release contract')
   }
-  if (manifest.releaseContractHash !== expectedReleaseContract) {
+  if (manifestObject['releaseContractHash'] !== expectedReleaseContract) {
     errors.push('releaseContractHash does not match the supplied release contract')
   }
 
   const expectedRunnerMetadata = checksumObject(summarizeRunnerMetadata(inputs.runRecord))
-  if (manifest.checksums.runnerMetadata !== expectedRunnerMetadata) {
+  if (checksums['runnerMetadata'] !== expectedRunnerMetadata) {
     errors.push('runnerMetadata checksum does not match the supplied RunRecord')
+  }
+  if (manifestObject['runnerMetadata'] !== undefined) {
+    const actualRunnerMetadata = checksumObject(manifestObject['runnerMetadata'])
+    if (checksums['runnerMetadata'] !== actualRunnerMetadata) {
+      errors.push('runnerMetadata checksum does not match the embedded proof metadata')
+    }
   }
 
   const expectedPublicResults = checksumObject({
     aggregates: [...inputs.runRecord.aggregates].sort((a, b) => a.runnerId.localeCompare(b.runnerId)),
   })
-  if (manifest.checksums.publicResults !== expectedPublicResults) {
+  if (checksums['publicResults'] !== expectedPublicResults) {
     errors.push('publicResults checksum does not match the supplied RunRecord')
+  }
+  if (manifestObject['publicResults'] !== undefined) {
+    const actualPublicResults = checksumObject(manifestObject['publicResults'])
+    if (checksums['publicResults'] !== actualPublicResults) {
+      errors.push('publicResults checksum does not match the embedded proof results')
+    }
+  }
+
+  const manifestTraceChecksum = typeof checksums['traceBundle'] === 'string'
+    ? checksums['traceBundle']
+    : null
+  if (manifestTraceChecksum) {
+    if (inputs.traceBundle === undefined) {
+      errors.push('traceBundle input is required because the proof manifest declares a traceBundle checksum')
+    } else {
+      errors.push(...validateTraceBundle(inputs.traceBundle))
+      const expectedTraceBundle = checksumObject(inputs.traceBundle)
+      if (manifestTraceChecksum !== expectedTraceBundle) {
+        errors.push('traceBundle checksum does not match the supplied trace bundle')
+      }
+    }
+  } else if (inputs.traceBundle !== undefined) {
+    errors.push('traceBundle was supplied but the proof manifest does not declare a traceBundle checksum')
+  }
+  if (inputs.runRecord.meta.environment && !manifestTraceChecksum) {
+    errors.push('RunRecord.meta.environment is present but proof manifest does not declare a traceBundle checksum')
   }
 
   const contractHash = extractReleaseContractScenarioSetHash(inputs.releaseContract)
@@ -305,6 +393,11 @@ export function validateProofBundleManifest(
     errors.push('scenario-set hash is missing from RunRecord, release contract, and dataset')
   } else if (!hashes.every((value) => value === hashes[0])) {
     errors.push('scenario-set hash mismatch between supplied proof inputs')
+  }
+
+  const selfTest = asRecord(manifestObject['reproducibilitySelfTest'])
+  if (selfTest['status'] !== 'passed') {
+    errors.push('reproducibilitySelfTest.status must be "passed"')
   }
 
   return { valid: errors.length === 0, errors }
@@ -322,12 +415,359 @@ export async function writeProofBundleManifest(
   await writeFile(path, formatProofBundleManifest(manifest), 'utf8')
 }
 
+export function verifyProofBundle(options: VerifyProofBundleOptions): ProofVerificationResult {
+  const checks: ProofVerificationCheck[] = []
+  const errors: string[] = []
+  const manifest = options.manifest as ProofBundleManifest
+  const manifestValidation = validateProofBundleManifest(manifest, options)
+  checks.push({
+    name: 'proof-manifest',
+    status: manifestValidation.valid ? 'passed' : 'failed',
+    detail: manifestValidation.valid
+      ? 'Proof manifest checksums and supplied inputs match'
+      : manifestValidation.errors.join('; '),
+  })
+  errors.push(...manifestValidation.errors)
+
+  if (options.leaderboardEligible) {
+    const leaderboardInputErrors: string[] = []
+    if (!options.dataset) {
+      leaderboardInputErrors.push('leaderboard-eligible proof verification requires --dataset')
+    }
+    if (!options.claimCard) {
+      leaderboardInputErrors.push('leaderboard-eligible proof verification requires --claim-card')
+    }
+    const releaseClaimGate = summarizeClaimGate(options.releaseContract)
+    if (releaseClaimGate.status !== 'allowed' || releaseClaimGate.leaderboardClaimsAllowed !== true) {
+      leaderboardInputErrors.push(
+        `release contract claimGate blocks leaderboard claims: status=${releaseClaimGate.status}, ` +
+          `leaderboardClaimsAllowed=${String(releaseClaimGate.leaderboardClaimsAllowed)}` +
+          (releaseClaimGate.blocker ? `; blocker=${releaseClaimGate.blocker}` : ''),
+      )
+    }
+    if (leaderboardInputErrors.length > 0) {
+      checks.push({
+        name: 'claim-eligibility',
+        status: 'failed',
+        detail: leaderboardInputErrors.join('; '),
+      })
+      errors.push(...leaderboardInputErrors)
+    } else {
+      const claimErrors = claimEligibilityErrors(options)
+      checks.push({
+        name: 'claim-eligibility',
+        status: claimErrors.length === 0 ? 'passed' : 'failed',
+        detail: claimErrors.length === 0
+          ? 'RunRecord satisfies the shared claim-card eligibility gate'
+          : claimErrors.join('; '),
+      })
+      errors.push(...claimErrors)
+    }
+  } else if (options.claimCard) {
+    const claimErrors = claimEligibilityErrors(options)
+    checks.push({
+      name: 'claim-card',
+      status: claimErrors.length === 0 ? 'passed' : 'failed',
+      detail: claimErrors.length === 0
+        ? 'Claim card matches the supplied RunRecord'
+        : claimErrors.join('; '),
+    })
+    errors.push(...claimErrors)
+  }
+
+  return { valid: errors.length === 0, errors: unique(errors), checks }
+}
+
+export function replayProofBundle(options: ReplayProofBundleOptions): ProofReplayResult {
+  const checks: ProofVerificationCheck[] = []
+  const errors: string[] = []
+  const replayedScores = replayScores(options.runRecord, options.dataset, errors)
+  checks.push({
+    name: 'score-replay',
+    status: errors.length === 0 && canonicalJson(replayedScores) === canonicalJson(options.runRecord.scores)
+      ? 'passed'
+      : 'failed',
+    detail: canonicalJson(replayedScores) === canonicalJson(options.runRecord.scores)
+      ? 'Scores replay from pinned outputs'
+      : 'score replay mismatch: regenerated scores differ from RunRecord.scores',
+  })
+
+  if (canonicalJson(replayedScores) !== canonicalJson(options.runRecord.scores)) {
+    errors.push('score replay mismatch: regenerated scores differ from RunRecord.scores')
+  }
+
+  const aggregateOptions = replayAggregateOptions(options.runRecord, options.dataset, errors)
+  const replayedAggregates = aggregate(replayedScores, aggregateOptions)
+  const aggregateMatches = canonicalJson(replayedAggregates) === canonicalJson(options.runRecord.aggregates)
+  checks.push({
+    name: 'aggregate-replay',
+    status: aggregateMatches ? 'passed' : 'failed',
+    detail: aggregateMatches
+      ? 'Aggregates replay from regenerated scores'
+      : 'aggregate replay mismatch: regenerated aggregates differ from RunRecord.aggregates',
+  })
+  if (!aggregateMatches) {
+    errors.push('aggregate replay mismatch: regenerated aggregates differ from RunRecord.aggregates')
+  }
+
+  if (options.proofManifest !== undefined) {
+    const replayRecord: RunRecord = {
+      ...options.runRecord,
+      scores: replayedScores,
+      aggregates: replayedAggregates,
+    }
+    const replayedManifest = buildProofBundleManifest({
+      runRecord: replayRecord,
+      releaseContract: options.releaseContract,
+      dataset: options.dataset,
+      ...(options.traceBundle !== undefined ? { traceBundle: options.traceBundle } : {}),
+    })
+    const verification = verifyProofBundle({
+      manifest: options.proofManifest,
+      runRecord: options.runRecord,
+      releaseContract: options.releaseContract,
+      dataset: options.dataset,
+      ...(options.traceBundle !== undefined ? { traceBundle: options.traceBundle } : {}),
+    })
+    errors.push(...verification.errors)
+    const proofMatches = canonicalJson(normalizeProofManifestForReplay(options.proofManifest)) ===
+      canonicalJson(normalizeProofManifestForReplay(replayedManifest))
+    checks.push({
+      name: 'proof-replay',
+      status: verification.valid && proofMatches ? 'passed' : 'failed',
+      detail: verification.valid && proofMatches
+        ? 'Proof manifest replays from regenerated scores and aggregates'
+        : 'proof manifest replay mismatch: regenerated proof manifest differs from supplied proof',
+    })
+    if (!proofMatches) {
+      errors.push('proof manifest replay mismatch: regenerated proof manifest differs from supplied proof')
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors: unique(errors),
+    checks,
+    replayed: true,
+    scoreCount: replayedScores.length,
+    aggregateCount: replayedAggregates.length,
+  }
+}
+
+export function formatProofVerificationResult(result: ProofVerificationResult): string {
+  if (result.valid) {
+    return [
+      `Proof verification passed: ${result.checks.filter((check) => check.status === 'passed').length}/${result.checks.length} check(s) passed`,
+      ...result.checks.map((check) => `  - ${check.name}: ${check.status}`),
+    ].join('\n')
+  }
+  return [
+    'Proof verification failed:',
+    ...result.errors.map((error) => `  - ${error}`),
+  ].join('\n')
+}
+
+export function formatProofReplayResult(result: ProofReplayResult): string {
+  if (result.valid) {
+    return [
+      `Proof replay passed: ${result.scoreCount} score(s), ${result.aggregateCount} aggregate(s) regenerated`,
+      ...result.checks.map((check) => `  - ${check.name}: ${check.status}`),
+    ].join('\n')
+  }
+  return [
+    'Proof replay failed:',
+    ...result.errors.map((error) => `  - ${error}`),
+  ].join('\n')
+}
+
 export function canonicalJson(value: unknown, pretty = false): string {
   return JSON.stringify(canonicalize(value), null, pretty ? 2 : 0)
 }
 
 export function checksumObject(value: unknown): string {
   return `sha256:${createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex')}`
+}
+
+function validateProofHashSchema(value: unknown): string[] {
+  const errors: string[] = []
+  const obj = asRecord(value)
+  for (const [key, expected] of Object.entries(PROOF_HASH_SCHEMA)) {
+    if (obj[key] !== expected) {
+      errors.push(`hashSchema.${key} must be ${expected}`)
+    }
+  }
+  return errors
+}
+
+function validateProofIndex(value: unknown, checksums: Record<string, unknown>): string[] {
+  const errors: string[] = []
+  if (!Array.isArray(value)) {
+    errors.push('proofIndex must be an array')
+    return errors
+  }
+  const indexChecksumById = new Map<string, string>()
+  for (const [index, entry] of value.entries()) {
+    const obj = asRecord(entry)
+    const id = extractString(obj, 'id')
+    const checksum = extractString(obj, 'checksum')
+    if (!id) errors.push(`proofIndex[${index}].id must be a non-empty string`)
+    if (!checksum) errors.push(`proofIndex[${index}].checksum must be a non-empty string`)
+    if (id && checksum) indexChecksumById.set(id, checksum)
+  }
+  const expectedIds = [
+    ['run-record', 'runRecord'],
+    ['release-contract', 'releaseContract'],
+    ['runner-metadata', 'runnerMetadata'],
+    ['public-results', 'publicResults'],
+    ['trace-bundle', 'traceBundle'],
+  ] as const
+  for (const [entryId, checksumKey] of expectedIds) {
+    const checksum = checksums[checksumKey]
+    if (typeof checksum !== 'string') continue
+    if (!indexChecksumById.has(entryId)) {
+      errors.push(`proofIndex is missing entry "${entryId}" for checksums.${checksumKey}`)
+    } else if (indexChecksumById.get(entryId) !== checksum) {
+      errors.push(`proofIndex entry "${entryId}" checksum does not match checksums.${checksumKey}`)
+    }
+  }
+  return errors
+}
+
+function validateTraceBundle(value: unknown): string[] {
+  const errors: string[] = []
+  const obj = asRecord(value)
+  if (obj['schemaVersion'] !== 'assay.environment-run-metadata.v1') {
+    errors.push('traceBundle.schemaVersion must be "assay.environment-run-metadata.v1"')
+  }
+  const results = obj['results']
+  if (!Array.isArray(results)) {
+    errors.push('traceBundle.results must be an array')
+    return errors
+  }
+  for (const [index, trace] of results.entries()) {
+    const item = asRecord(trace)
+    const path = `traceBundle.results[${index}]`
+    if (item['schemaVersion'] !== 'assay.environment-trace.v1') {
+      errors.push(`${path}.schemaVersion must be "assay.environment-trace.v1"`)
+    }
+    for (const key of ['scenarioId', 'runnerId', 'environmentId']) {
+      if (!extractString(item, key)) errors.push(`${path}.${key} must be a non-empty string`)
+    }
+    if (!Array.isArray(item['steps'])) errors.push(`${path}.steps must be an array`)
+    if (!Array.isArray(item['validators'])) errors.push(`${path}.validators must be an array`)
+    const redaction = asRecord(item['redaction'])
+    if (typeof redaction['applied'] !== 'boolean') {
+      errors.push(`${path}.redaction.applied must be a boolean`)
+    }
+    if (!Array.isArray(redaction['redactedPaths'])) {
+      errors.push(`${path}.redaction.redactedPaths must be an array`)
+    }
+  }
+  return errors
+}
+
+function claimEligibilityErrors(options: VerifyProofBundleOptions): string[] {
+  try {
+    assertRunClaimEligible(options.runRecord, {
+      ...(options.dataset ? { dataset: options.dataset } : {}),
+      ...(options.claimCard ? { claimCard: options.claimCard } : {}),
+      ...(options.now ? { now: options.now } : {}),
+    })
+    return []
+  } catch (err) {
+    if (err instanceof ClaimEligibilityError) return err.errors
+    throw err
+  }
+}
+
+function replayScores(record: RunRecord, dataset: Dataset, errors: string[]): Score[] {
+  const scenarioById = new Map(dataset.scenarios.map((scenario) => [scenario.id, scenario]))
+  const out: Score[] = []
+  for (const response of record.responses) {
+    const scenario = scenarioById.get(response.scenarioId)
+    if (!scenario) {
+      errors.push(`response for scenario "${response.scenarioId}" has no matching dataset scenario`)
+      continue
+    }
+    const result = score(response, scenario)
+    if (isPromiseLike(result)) {
+      errors.push(`scenario "${scenario.id}" uses an async rubric and cannot be replayed without a pinned judge result`)
+      continue
+    }
+    out.push(...result)
+  }
+  return out
+}
+
+function replayAggregateOptions(
+  record: RunRecord,
+  dataset: Dataset,
+  errors: string[],
+): AggregatorOptions {
+  const confidence = inferBootstrapOptions(record, errors)
+  const weights = record.aggregates[0]?.weights
+  return {
+    ...(weights ? { weights } : {}),
+    ...(confidence ? { confidence } : {}),
+    responses: record.responses,
+    sliceMetadataByScenario: sliceMetadataByScenario(dataset),
+  }
+}
+
+function inferBootstrapOptions(record: RunRecord, errors: string[]): BootstrapOptions | undefined {
+  const claims = record.aggregates
+    .map((item) => item.statisticalClaims)
+    .filter((claim): claim is NonNullable<ModelAggregate['statisticalClaims']> => Boolean(claim))
+  if (claims.length === 0) return undefined
+  if (claims.length !== record.aggregates.length) {
+    errors.push('aggregate replay cannot infer confidence settings because only some aggregates carry statisticalClaims')
+  }
+  const first = claims[0]!
+  for (const claim of claims.slice(1)) {
+    if (
+      claim.method !== first.method ||
+      claim.iterations !== first.iterations ||
+      claim.confidenceLevel !== first.confidenceLevel ||
+      claim.seed !== first.seed
+    ) {
+      errors.push('aggregate replay cannot infer one deterministic bootstrap configuration from mixed statisticalClaims')
+      break
+    }
+  }
+  return {
+    method: first.method,
+    iterations: first.iterations,
+    confidenceLevel: first.confidenceLevel,
+    seed: first.seed,
+  }
+}
+
+function sliceMetadataByScenario(dataset: Dataset): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    dataset.scenarios.map((scenario) => [
+      scenario.id,
+      isRecord(scenario.meta?.['slices']) ? scenario.meta['slices'] : {},
+    ]),
+  )
+}
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof value === 'object' && value !== null && 'then' in value &&
+    typeof (value as { then?: unknown }).then === 'function'
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)]
+}
+
+function normalizeProofManifestForReplay(value: unknown): unknown {
+  const parsed = JSON.parse(canonicalJson(value)) as unknown
+  const obj = asRecord(parsed)
+  const run = asRecord(obj['run'])
+  if (Object.keys(run).length > 0) {
+    obj['run'] = { ...run, redactedCommandLine: null }
+  }
+  return obj
 }
 
 function selfTestChecks(
@@ -533,6 +973,10 @@ function canonicalize(value: unknown): JsonValue {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function extractString(obj: Record<string, unknown>, key: string): string | null {
