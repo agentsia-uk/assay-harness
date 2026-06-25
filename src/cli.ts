@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { loadDataset } from './loader.js'
@@ -38,6 +38,16 @@ import {
 import { redactCommandLine } from './redact.js'
 import { pooled } from './concurrency.js'
 import { withJudgeCache } from './judge-cache.js'
+import {
+  RunLedgerWriter,
+  createRunLedgerHeader,
+  readRunLedger,
+  rebuildRunRecordFromLedger,
+} from './ledger.js'
+import {
+  normaliseTracePolicy,
+  writeSampleTraceBundle,
+} from './traces.js'
 import { compareRuns, formatCompareTable } from './compare.js'
 import { buildMarkdownReport, createGist } from './publish.js'
 import {
@@ -74,12 +84,17 @@ import type {
   ClaimCard,
   Dataset,
   LLMJudgeExecutor,
+  MultiTurnRunLedgerMetadata,
   ModelResponse,
+  RunLedgerAggregateOptions,
   Runner,
   RunnerOptions,
   RunRecord,
+  ScenarioRunLedgerOutcome,
   ScenarioSetFingerprint,
   Score,
+  TraceBundleVisibility,
+  TraceRawOutputPolicy,
 } from './types.js'
 import type {
   ReleaseDiagnosticArtifact,
@@ -114,6 +129,12 @@ program
   .requiredOption('-d, --dataset <path>', 'dataset directory or bundle file')
   .requiredOption('-r, --runner <id...>', 'runner id(s), e.g. stub:echo, anthropic:claude-opus-4-7')
   .option('-o, --out <path>', 'output RunRecord JSON path', 'runs/latest.json')
+  .option('--run-id <id>', 'stable run id for ledger-backed resumable runs')
+  .option('--ledger <path>', 'append-only run ledger JSONL path; defaults to runs/ledgers/<run-id>.jsonl when enabled')
+  .option('--resume', 'resume an existing run ledger and skip completed scenario/runner cells')
+  .option('--trace-dir <path>', 'directory for checksum-addressed per-sample trace bundles; defaults to runs/traces/<run-id> when the ledger is enabled')
+  .option('--trace-visibility <visibility>', 'trace visibility policy: public or internal', 'public')
+  .option('--trace-raw-output <policy>', 'trace raw output policy: omit, redacted, or include', 'omit')
   .option('-t, --temperature <n>', 'temperature', parseFloat, 0)
   .option('--seed <n>', 'seed (where supported)', parseIntSafe)
   .option('--concurrency <n>', 'max parallel scenarios per runner (default 3)', parseIntSafe, 3)
@@ -160,9 +181,64 @@ program
     const scenarioSetHash = scenarioSetIdentity.scenarioSetHash
     const runnerIds = Array.isArray(opts.runner) ? opts.runner : [opts.runner]
     const runners = runnerIds.map((id) => resolveRunner(id))
+    const runnerOpts: RunnerOptions = {
+      temperature: opts.temperature,
+      ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+    }
+    if (opts.resume && !opts.runId) {
+      throw new Error('--resume requires --run-id so the ledger key is explicit')
+    }
     const log = createStderrLogger()
-    const runId = newRunId()
+    const runId = opts.runId ?? newRunId()
     const at = () => new Date().toISOString()
+    const createdAt = at()
+    const withCi = opts.ci !== false
+    const aggregateOptions: RunLedgerAggregateOptions = {
+      confidence: {
+        enabled: withCi,
+        iterations: opts.ciIterations,
+        confidenceLevel: opts.ciLevel,
+        seed: opts.ciSeed,
+      },
+    }
+    const tracePolicy = normaliseTracePolicy(
+      opts.traceVisibility as TraceBundleVisibility,
+      opts.traceRawOutput as TraceRawOutputPolicy,
+    )
+    const traceFlagsRequested = Boolean(
+      opts.traceDir ||
+        opts.traceVisibility !== 'public' ||
+        opts.traceRawOutput !== 'omit',
+    )
+    const ledgerEnabled = Boolean(opts.runId || opts.ledger || opts.resume || traceFlagsRequested)
+    const ledgerPath = ledgerEnabled
+      ? opts.ledger ?? join('runs', 'ledgers', `${runId}.jsonl`)
+      : undefined
+    const traceDir = ledgerEnabled
+      ? opts.traceDir ?? join('runs', 'traces', runId)
+      : undefined
+    const ledger = ledgerEnabled
+      ? await RunLedgerWriter.open(
+          ledgerPath!,
+          createRunLedgerHeader({
+            runId,
+            dataset,
+            scenarioSetHash,
+            scenarioSetHashSchemaVersion: scenarioSetIdentity.hashSchemaVersion,
+            ...(scenarioSetIdentity.metadata
+              ? { scenarioSetHashMetadata: scenarioSetIdentity.metadata }
+              : {}),
+            runnerIds: runners.map((r) => r.id),
+            runnerOptions: runnerOpts,
+            aggregate: aggregateOptions,
+            tracePolicy,
+            harnessVersion: pkg.version,
+            commandLine: redactCommandLine(process.argv.slice(1)),
+            createdAt,
+          }),
+          { resume: opts.resume },
+        )
+      : undefined
 
     log.emit({
       event: 'run:start',
@@ -170,6 +246,8 @@ program
       dataset: dataset.name,
       runners: runners.map((r) => r.id),
       scenarioCount: dataset.scenarios.length,
+      ...(ledgerPath ? { ledger: ledgerPath } : {}),
+      ...(opts.resume ? { resume: true } : {}),
       at: at(),
     })
 
@@ -187,24 +265,61 @@ program
 
     const responses: ModelResponse[] = []
     const scores: Score[] = []
-    const multiTurnResults: MultiTurnRunMetadataItem[] = []
+    const multiTurnResults: MultiTurnRunLedgerMetadata[] = []
     const multiTurnScenarioCount = dataset.scenarios.filter((scenario) =>
       isMultiTurnScenario(scenario),
     ).length
 
     for (const runner of runners) {
-      const runnerOpts = {
-        temperature: opts.temperature,
-        ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
-      }
       const tasks = dataset.scenarios.map((scenario) => async () => {
+        const cached = ledger?.completedCell(runner.id, scenario.id)
+        if (cached) {
+          log.emit({
+            event: 'scenario:skip',
+            runId,
+            runnerId: runner.id,
+            scenarioId: scenario.id,
+            reason: 'ledger-completed',
+            at: at(),
+          })
+          return cached.outcome
+        }
+
+        const startedAt = at()
         log.emit({ event: 'scenario:start', runId, runnerId: runner.id, scenarioId: scenario.id, at: at() })
-        let outcome: ScenarioRunOutcome
+        let outcome: ScenarioRunLedgerOutcome
         try {
           outcome = isMultiTurnScenario(scenario)
             ? await runMultiTurnForRecord(runner, scenario, runnerOpts)
             : await runSingleTurnForRecord(runner, scenario, runnerOpts, llmJudge)
+          const trace = ledger && traceDir
+            ? await writeSampleTraceBundle({
+                traceDir,
+                header: ledger.state.header,
+                dataset,
+                scenario,
+                runnerId: runner.id,
+                outcome,
+                visibility: tracePolicy.visibility,
+                rawOutputPolicy: tracePolicy.rawOutputPolicy,
+              })
+            : undefined
+          await ledger?.appendCompletedCell({
+            scenarioId: scenario.id,
+            runnerId: runner.id,
+            startedAt,
+            completedAt: at(),
+            outcome,
+            ...(trace ? { trace } : {}),
+          })
         } catch (err) {
+          await ledger?.appendFailedCell({
+            scenarioId: scenario.id,
+            runnerId: runner.id,
+            startedAt,
+            completedAt: at(),
+            error: err,
+          })
           const error = err instanceof Error ? err.message : String(err)
           log.emit({ event: 'scenario:error', runId, runnerId: runner.id, scenarioId: scenario.id, error, at: at() })
           throw err
@@ -234,25 +349,23 @@ program
 
     // Tier-1 #3: wire bootstrap confidence intervals into the run path. A
     // composite without an interval is not leaderboard-eligible.
-    const withCi = opts.ci !== false
-    const aggregates = aggregate(
-      scores,
-      withCi
-        ? {
-            confidence: {
-              method: 'bootstrap',
-              iterations: opts.ciIterations,
-              confidenceLevel: opts.ciLevel,
-              seed: opts.ciSeed,
-            },
-            responses,
-            sliceMetadataByScenario: sliceMetadataByScenario(dataset),
-          }
-        : {
-            responses,
-            sliceMetadataByScenario: sliceMetadataByScenario(dataset),
-          },
-    )
+    const persistedLedger = ledger ? await readRunLedger(ledger.path) : null
+    const record: RunRecord = persistedLedger
+      ? rebuildRunRecordFromLedger(persistedLedger, { dataset })
+      : buildRunRecord({
+          runId,
+          dataset,
+          scenarioSetHash,
+          scenarioSetIdentity,
+          runners,
+          createdAt,
+          responses,
+          scores,
+          multiTurnResults,
+          multiTurnScenarioCount,
+          aggregateOptions,
+        })
+    const aggregates = record.aggregates
 
     // Tier-1 #3 + #4: enforce the publication integrity gates before a run can
     // claim leaderboard eligibility. Fail closed if intervals are missing or
@@ -264,19 +377,7 @@ program
             '--no-ci to publish a composite as leaderboard-eligible',
         )
       }
-      assertRunClaimEligible({
-        id: runId,
-        dataset: { name: dataset.name, version: dataset.version },
-        scenarioSetHash,
-        scenarioSetHashSchemaVersion: scenarioSetIdentity.hashSchemaVersion,
-        ...(scenarioSetIdentity.metadata ? { scenarioSetHashMetadata: scenarioSetIdentity.metadata } : {}),
-        runners: runners.map((r) => r.id),
-        createdAt: at(),
-        responses,
-        scores,
-        aggregates,
-        meta: { harnessVersion: pkg.version },
-      }, { dataset })
+      assertRunClaimEligible(record, { dataset })
     }
 
     log.emit({
@@ -285,38 +386,6 @@ program
       composite: Object.fromEntries(aggregates.map((a) => [a.runnerId, a.composite])),
       at: at(),
     })
-
-    const record: RunRecord = {
-      id: runId,
-      dataset: { name: dataset.name, version: dataset.version },
-      scenarioSetHash,
-      scenarioSetHashSchemaVersion: scenarioSetIdentity.hashSchemaVersion,
-      ...(scenarioSetIdentity.metadata ? { scenarioSetHashMetadata: scenarioSetIdentity.metadata } : {}),
-      runners: runners.map((r) => r.id),
-      createdAt: new Date().toISOString(),
-      responses,
-      scores,
-      aggregates,
-      meta: {
-        harnessVersion: pkg.version,
-        commandLine: redactCommandLine(process.argv.slice(1)),
-        scenarioSetHashMetadata: {
-          schemaVersion: 'assay-harness.scenario-set-hash.v1',
-          scenarioSetHash,
-          scenarioCount: dataset.scenarios.length,
-          singleTurnScenarioCount: dataset.scenarios.length - multiTurnScenarioCount,
-          multiTurnScenarioCount,
-        },
-        ...(multiTurnResults.length > 0
-          ? {
-              multiTurn: {
-                graderVersion: PERSISTENCE_GRADER_VERSION,
-                results: multiTurnResults,
-              },
-            }
-          : {}),
-      },
-    }
 
     await writeRunRecord(opts.out, record)
     console.log(`wrote ${opts.out}`)
@@ -740,21 +809,74 @@ frontier
 
 await program.parseAsync(process.argv)
 
-interface ScenarioRunOutcome {
+interface BuildRunRecordOptions {
+  runId: string
+  dataset: Dataset
+  scenarioSetHash: string
+  scenarioSetIdentity: ReturnType<typeof computeScenarioSetIdentity>
+  runners: Runner[]
+  createdAt: string
   responses: ModelResponse[]
   scores: Score[]
-  latencyMs: number
-  multiTurn?: MultiTurnRunMetadataItem
+  multiTurnResults: MultiTurnRunLedgerMetadata[]
+  multiTurnScenarioCount: number
+  aggregateOptions: RunLedgerAggregateOptions
 }
 
-interface MultiTurnRunMetadataItem {
-  scenarioId: string
-  runnerId: string
-  value: number
-  graderVersion: string
-  turnObservations: MultiTurnResult['turns']
-  persistence: MultiTurnResult['persistence']
-  turnResponseScenarioIds: string[]
+function buildRunRecord(options: BuildRunRecordOptions): RunRecord {
+  const confidence = options.aggregateOptions.confidence
+  const aggregates = aggregate(
+    options.scores,
+    confidence.enabled
+      ? {
+          confidence: {
+            method: 'bootstrap',
+            iterations: confidence.iterations,
+            confidenceLevel: confidence.confidenceLevel,
+            seed: confidence.seed,
+          },
+          responses: options.responses,
+          sliceMetadataByScenario: sliceMetadataByScenario(options.dataset),
+        }
+      : {
+          responses: options.responses,
+          sliceMetadataByScenario: sliceMetadataByScenario(options.dataset),
+        },
+  )
+
+  return {
+    id: options.runId,
+    dataset: { name: options.dataset.name, version: options.dataset.version },
+    scenarioSetHash: options.scenarioSetHash,
+    scenarioSetHashSchemaVersion: options.scenarioSetIdentity.hashSchemaVersion,
+    ...(options.scenarioSetIdentity.metadata
+      ? { scenarioSetHashMetadata: options.scenarioSetIdentity.metadata }
+      : {}),
+    runners: options.runners.map((r) => r.id),
+    createdAt: options.createdAt,
+    responses: options.responses,
+    scores: options.scores,
+    aggregates,
+    meta: {
+      harnessVersion: pkg.version,
+      commandLine: redactCommandLine(process.argv.slice(1)),
+      scenarioSetHashMetadata: {
+        schemaVersion: 'assay-harness.scenario-set-hash.v1',
+        scenarioSetHash: options.scenarioSetHash,
+        scenarioCount: options.dataset.scenarios.length,
+        singleTurnScenarioCount: options.dataset.scenarios.length - options.multiTurnScenarioCount,
+        multiTurnScenarioCount: options.multiTurnScenarioCount,
+      },
+      ...(options.multiTurnResults.length > 0
+        ? {
+            multiTurn: {
+              graderVersion: PERSISTENCE_GRADER_VERSION,
+              results: options.multiTurnResults,
+            },
+          }
+        : {}),
+    },
+  }
 }
 
 async function runSingleTurnForRecord(
@@ -762,7 +884,7 @@ async function runSingleTurnForRecord(
   scenario: Dataset['scenarios'][number],
   runnerOpts: RunnerOptions,
   llmJudge: LLMJudgeExecutor | undefined,
-): Promise<ScenarioRunOutcome> {
+): Promise<ScenarioRunLedgerOutcome> {
   assertNotEnvironmentScenario(scenario)
   assertSingleTurn(scenario)
   const response = await runner.run(scenario, runnerOpts)
@@ -778,11 +900,11 @@ async function runMultiTurnForRecord(
   runner: Runner,
   scenario: MultiTurnScenario,
   runnerOpts: RunnerOptions,
-): Promise<ScenarioRunOutcome> {
+): Promise<ScenarioRunLedgerOutcome> {
   const result = await runMultiTurn(runner, scenario, runnerOpts)
   const response = collapseMultiTurnResponse(result)
   const scores = scoreMultiTurnResult(result, scenario)
-  const meta: MultiTurnRunMetadataItem = {
+  const meta: MultiTurnRunLedgerMetadata = {
     scenarioId: scenario.id,
     runnerId: runner.id,
     value: result.value,
@@ -949,6 +1071,12 @@ interface RunOptions {
   dataset: string
   runner: string | string[]
   out: string
+  runId?: string
+  ledger?: string
+  resume?: boolean
+  traceDir?: string
+  traceVisibility: string
+  traceRawOutput: string
   temperature: number
   seed?: number
   concurrency: number

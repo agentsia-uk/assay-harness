@@ -500,9 +500,126 @@ export interface RunRecord {
     }
     /** Environment audit trail, present only when a run executes environment scenarios. */
     environment?: EnvironmentRunMetadata
+    /** Incremental resumable-run ledger metadata, present when the run used a ledger. */
+    runLedger?: RunLedgerRunRecordMetadata
+    /** Checksum-addressed per-sample traces emitted by a ledger-backed run. */
+    traceBundles?: TraceBundleIndexMetadata
     /** Additional run-level context: host, env flags, etc. */
     env?: Record<string, unknown>
   }
+}
+
+export type TraceBundleVisibility = 'public' | 'internal'
+
+export type TraceRawOutputPolicy = 'omit' | 'redacted' | 'include'
+
+export interface TraceBundleReference {
+  schemaVersion: 'assay.sample-trace.v1'
+  scenarioId: string
+  runnerId: string
+  checksum: string
+  fileName: string
+  path: string
+  visibility: TraceBundleVisibility
+  rawOutputPolicy: TraceRawOutputPolicy
+}
+
+export interface TraceBundleIndexMetadata {
+  schemaVersion: 'assay.trace-index.v1'
+  visibility: TraceBundleVisibility
+  rawOutputPolicy: TraceRawOutputPolicy
+  bundles: TraceBundleReference[]
+}
+
+export interface MultiTurnRunLedgerMetadata {
+  scenarioId: string
+  runnerId: string
+  value: number
+  graderVersion: string
+  turnObservations: unknown[]
+  persistence: unknown[]
+  turnResponseScenarioIds: string[]
+}
+
+export interface ScenarioRunLedgerOutcome {
+  responses: ModelResponse[]
+  scores: Score[]
+  latencyMs: number
+  multiTurn?: MultiTurnRunLedgerMetadata
+}
+
+export interface RunLedgerError {
+  name: string
+  message: string
+  stack?: string
+}
+
+export interface RunLedgerConfidenceOptions {
+  enabled: boolean
+  iterations: number
+  confidenceLevel: number
+  seed: number
+}
+
+export interface RunLedgerAggregateOptions {
+  confidence: RunLedgerConfidenceOptions
+}
+
+export interface RunLedgerHeader {
+  schemaVersion: 'assay.run-ledger.v1'
+  type: 'header'
+  runId: string
+  dataset: {
+    name: string
+    version: string
+  }
+  scenarioSetHash: string
+  scenarioSetHashSchemaVersion: ScenarioSetHashSchemaVersion
+  scenarioSetHashMetadata?: ScenarioSetHashMetadata
+  runnerIds: string[]
+  runnerOptions: RunnerOptions
+  runnerOptionsHash: string
+  aggregate: RunLedgerAggregateOptions
+  tracePolicy?: {
+    visibility: TraceBundleVisibility
+    rawOutputPolicy: TraceRawOutputPolicy
+  }
+  harnessVersion: string
+  commandLine?: string
+  createdAt: string
+}
+
+export interface RunLedgerCellBase {
+  schemaVersion: 'assay.run-ledger.v1'
+  type: 'cell'
+  runId: string
+  scenarioId: string
+  runnerId: string
+  runnerOptionsHash: string
+  startedAt: string
+  completedAt: string
+}
+
+export interface RunLedgerCompletedCell extends RunLedgerCellBase {
+  status: 'completed'
+  outcome: ScenarioRunLedgerOutcome
+  trace?: TraceBundleReference
+}
+
+export interface RunLedgerFailedCell extends RunLedgerCellBase {
+  status: 'failed'
+  error: RunLedgerError
+}
+
+export type RunLedgerCell = RunLedgerCompletedCell | RunLedgerFailedCell
+
+export type RunLedgerEntry = RunLedgerHeader | RunLedgerCell
+
+export interface RunLedgerRunRecordMetadata {
+  schemaVersion: 'assay.run-ledger.v1'
+  runId: string
+  completedCells: number
+  failedCells: number
 }
 
 export interface ConfidenceInterval {

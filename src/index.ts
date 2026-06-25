@@ -174,6 +174,42 @@ export type {
   ValidateProofBundleInputs,
 } from './proof.js'
 export {
+  RUN_LEDGER_SCHEMA_VERSION,
+  RunLedgerIncompleteError,
+  RunLedgerMismatchError,
+  RunLedgerWriter,
+  computeRunnerOptionsHash,
+  createRunLedgerHeader,
+  normaliseRunnerOptions,
+  readRunLedger,
+  rebuildRunRecordFromLedger,
+  validateResumeLedger,
+} from './ledger.js'
+export type {
+  AppendCompletedCellOptions,
+  AppendFailedCellOptions,
+  CreateRunLedgerHeaderOptions,
+  RunLedgerState,
+  RunLedgerWriterOptions,
+} from './ledger.js'
+export {
+  SAMPLE_TRACE_SCHEMA_VERSION,
+  TRACE_INDEX_SCHEMA_VERSION,
+  buildSampleTraceBundle,
+  checksumString,
+  normaliseTracePolicy,
+  writeSampleTraceBundle,
+} from './traces.js'
+export type {
+  BuildSampleTraceBundleOptions,
+  SampleTraceBundle,
+  SampleTracePayload,
+  TraceRedactionSummary,
+  TraceResponseSummary,
+  TraceScoreComponent,
+  WriteSampleTraceBundleOptions,
+} from './traces.js'
+export {
   aggregateConfidenceErrors,
   assertRunClaimEligible,
   validateRunRecord,

@@ -98,6 +98,28 @@ continues to pin the public Assay-Adtech v1 export and release contract.
 
 `runs/local.json` is a `RunRecord` containing the raw model responses, per-scenario scores, aggregate scores, harness version, and command line.
 
+For long provider runs, give the run a stable id and let the harness write an
+append-only ledger plus checksum-addressed per-sample traces:
+
+```bash
+pnpm assay run \
+  --dataset examples/scenarios \
+  --runner stub:echo \
+  --out runs/local.json \
+  --run-id local-smoke-001 \
+  --ledger runs/ledgers/local-smoke-001.jsonl \
+  --trace-dir runs/traces/local-smoke-001
+```
+
+If a run is interrupted, repeat the same command with `--resume`. The CLI
+validates the run id, scenario-set hash, runner ids, runner options, aggregate
+settings, and trace policy before it skips completed scenario/runner cells.
+Failed cells are also appended to the ledger, so a partial run remains
+diagnosable. Trace bundles default to public visibility and omit raw outputs;
+use `--trace-raw-output redacted` for redacted output text, or
+`--trace-visibility internal --trace-raw-output include` only for private
+operator storage.
+
 4. Run a real provider model by setting the relevant key and choosing a runner id.
 
    ```bash
