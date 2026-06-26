@@ -1,17 +1,29 @@
 # assay-harness
 
-Open evaluation harness for the [Agentsia Labs](https://agentsia.uk/labs)
-benchmark series.
+Open evaluation harness, originated by
+[Agentsia](https://agentsia.uk) and prepared for donation to
+[IAB Tech Lab](https://iabtechlab.com), for reproducible model benchmark
+running, scoring, proof bundles, and `RunRecord` output.
 
-`assay-harness` is the public runner, scoring, and proof package used around
-Agentsia Labs benchmark releases. It loads harness-native scenario datasets,
-sends prompts to provider or local model runners, evaluates outputs against
-published rubrics, writes versioned `RunRecord` JSON, and emits the public
-diagnostics and proof metadata needed to keep benchmark claims reproducible.
+`assay-harness` is a public runner, scoring, and proof package for governed
+benchmark releases. It loads harness-native scenario datasets, sends prompts to
+provider or local model runners, evaluates outputs against published rubrics,
+writes versioned `RunRecord` JSON, and emits the public diagnostics and proof
+metadata needed to keep benchmark claims reproducible. The current repository
+and release tarballs are still hosted under Agentsia during handover; after
+donation, IAB Tech Lab is expected to connect the project to its GitHub
+organization, runners, and release operations.
 
 The scoring mechanism is public and reproducible. The executable scorer enforces the published scoring rules rather than leaving them as prose: it caps keyword-bingo so a response cannot win on vocabulary alone, and it matches negation-aware so "this is **not** invalid traffic" is not credited as if it had flagged invalid traffic. The mechanism is a scoring *rule*, not an answer key. See [Reproducibility](#reproducibility) for the golden self-test that proves a headline number regenerates, and [`docs/public-held-out-boundary.md`](docs/public-held-out-boundary.md) for exactly what is released versus held out.
 
-The first live benchmark is **Assay-Adtech v1**. The governed corpus size, the public/private split, and the scenario-set hash are reported by the release contract, which is the single source of truth for those numbers (see [Assay-Adtech V1 Artifacts](#assay-adtech-v1-artifacts)). The private holdout scenarios are excluded from the public export and exist for leaderboard integrity; they are disclosed as excluded, never silently folded into a public composite.
+The first live benchmark is **Assay-Adtech v1**. It was produced by Agentsia's
+Modelsmith system before donation. The governed corpus size, the public/private
+split, and the scenario-set hash are reported by the release contract, which is
+the single source of truth for those numbers (see
+[Assay-Adtech V1 Artifacts](#assay-adtech-v1-artifacts)). The private holdout
+scenarios are excluded from the public export and exist for leaderboard
+integrity; they are disclosed as excluded, never silently folded into a public
+composite.
 
 ![Assay-Adtech frontier performance chart](docs/assets/assay-adtech-frontier-performance.svg)
 
@@ -63,7 +75,29 @@ continues to pin the public Assay-Adtech v1 export and release contract.
   scenario-set hash, hash schema, provider quorum, and optional proof freshness
   policy.
 
+## Stewardship And Donation Status
+
+`assay-harness` is an Agentsia-originated project prepared for donation to IAB
+Tech Lab. IAB Tech Lab is receiving this repository in full: source, tests,
+examples, public documentation, release packaging, and the current GitHub
+release tarballs. Agentsia retains ownership of systems outside this repository,
+including Modelsmith, private scenario-generation pipelines, private holdout
+sets, internal training infrastructure, and any customer-specific data or
+operations.
+
+During the handover period, this repository may still reference Agentsia-owned
+release artifacts and Modelsmith-produced contracts because those artifacts are
+the historical source for Assay-Adtech v1. Those references define provenance;
+they do not transfer Modelsmith or private holdout material. After handover, IAB
+Tech Lab is responsible for attaching the repository to its GitHub organization,
+CI runners, security process, and release workflow.
+
 ## Get Started
+
+Current public distribution is through GitHub source and release tarballs. The
+package is not published to npm yet. For local development, clone the repository
+and run the source commands below. For release consumption, download and verify
+the release tarball from GitHub.
 
 1. Install Node 22 or later and use the pnpm version pinned by Corepack.
 
@@ -132,7 +166,18 @@ operator storage.
 
    Other runner prefixes are `openai:`, `google:`, `hf:`, and `vllm:`.
 
-5. Download the Assay-Adtech v1 public artifacts.
+5. Download a packaged harness release tarball when you need a built artifact.
+
+   ```bash
+   gh release download v0.5.1 \
+     --repo agentsia-uk/assay-harness \
+     --pattern 'assay-harness-0.5.1.tgz*'
+   expected="$(cut -d' ' -f1 assay-harness-0.5.1.tgz.sha256)"
+   actual="$(shasum -a 256 assay-harness-0.5.1.tgz | awk '{print $1}')"
+   test "$expected" = "$actual"
+   ```
+
+6. Download the Assay-Adtech v1 public benchmark artifacts.
 
    ```bash
    mkdir -p artifacts/assay-adtech-v1.8.0-rc.4
@@ -142,14 +187,14 @@ operator storage.
      --pattern 'assay-adtech-v1.8.0-rc.4-*'
    ```
 
-6. Verify the release assets.
+7. Verify the benchmark release assets.
 
    ```bash
    cd artifacts/assay-adtech-v1.8.0-rc.4
    shasum -a 256 -c assay-adtech-v1.8.0-rc.4-assets.sha256
    ```
 
-7. Inspect the public benchmark export.
+8. Inspect the public benchmark export.
 
    ```bash
    node -e "const fs=require('fs'); const p='assay-adtech-v1.8.0-rc.4-public-harness-export.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); console.log(j.metadata); console.log(j.scenarios.length)"
@@ -583,10 +628,15 @@ Apache 2.0. See `LICENSE`.
 
 ## Citation
 
-If you cite Agentsia Labs numbers, cite the specific benchmark release and scenario-set hash. The repo is the tool. The benchmark release is the claim.
+If you cite Assay benchmark numbers, cite the benchmark producer, the specific
+benchmark release, the scenario-set hash, and the harness version used to score
+the run. For historical Assay-Adtech v1 figures, cite Agentsia / Modelsmith as
+the producer and include the release contract hash. The repo is the tool. The
+benchmark release is the claim.
 
 ## Related
 
 - [Assay-Adtech v1 benchmark page](https://agentsia.uk/labs/benchmarks/assay-adtech-v1)
+- [IAB Tech Lab](https://iabtechlab.com)
 - [Agentsia Labs](https://agentsia.uk/labs)
 - [Agentsia](https://agentsia.uk)

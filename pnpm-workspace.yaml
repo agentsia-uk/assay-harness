@@ -6,6 +6,7 @@ autoInstallPeers: true
 
 overrides:
   "ws@>=8.0.0 <8.21.0": ">=8.21.0"
+  protobufjs: "^7.6.4"
 
 allowBuilds:
   esbuild: true
