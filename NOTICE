@@ -1,0 +1,11 @@
+assay-harness
+
+Copyright 2026 Agentsia Ltd.
+
+This project originated at Agentsia and is prepared for donation to IAB Tech
+Lab. The repository is licensed under the Apache License, Version 2.0.
+
+Assay-Adtech v1 release artifacts referenced by this repository were produced
+by Agentsia / Modelsmith before donation. Modelsmith, private holdout scenarios,
+private scenario-generation pipelines, internal training infrastructure, and
+customer-specific data are not part of this repository transfer.

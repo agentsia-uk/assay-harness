@@ -112,7 +112,7 @@ const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { version: string }
 
 const program = new Command()
   .name('assay')
-  .description('Agentsia Labs evaluation harness')
+  .description('Assay benchmark evaluation harness')
   .version(pkg.version)
 
 program

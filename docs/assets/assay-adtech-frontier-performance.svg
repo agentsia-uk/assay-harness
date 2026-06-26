@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650" role="img" aria-labelledby="title desc">
   <title id="title">Assay-Adtech frontier snapshot with seven provider rows</title>
-  <desc id="desc">Version-labelled Modelsmith Assay-Adtech frontier snapshot showing Fable 5 at 44.2 percent, Opus 4.7 at 41.6 percent, GPT 5.5 at 40.4 percent, Gemini 3.5 Flash at 38.1 percent, Gemini 3.1 Pro Preview at 37.2 percent, Opus 4.8 at 36.0 percent, and GPT 5.4 at 36.0 percent. Fable 5 is marked provisional. Public claims must follow the benchmark release contract.</desc>
+  <desc id="desc">Historical Agentsia / Modelsmith Assay-Adtech frontier snapshot, included in assay-harness as provenance material during donation preparation for IAB Tech Lab. It shows Fable 5 at 44.2 percent, Opus 4.7 at 41.6 percent, GPT 5.5 at 40.4 percent, Gemini 3.5 Flash at 38.1 percent, Gemini 3.1 Pro Preview at 37.2 percent, Opus 4.8 at 36.0 percent, and GPT 5.4 at 36.0 percent. Fable 5 is marked provisional. Public claims must follow the benchmark release contract.</desc>
   <defs>
     <style>
       text { font-family: Arial, sans-serif; }
@@ -107,5 +107,5 @@
     <text class="provider" x="0" y="542" text-anchor="middle">OpenAI</text>
   </g>
 
-  <text class="fine" x="24" y="620">Version-labelled Modelsmith frontier snapshot. Fable 5 is provisional; public leaderboard claims follow the benchmark release contract.</text>
+  <text class="fine" x="24" y="620">Historical Agentsia / Modelsmith snapshot. Fable 5 is provisional; public claims follow the release contract.</text>
 </svg>

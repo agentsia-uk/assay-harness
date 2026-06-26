@@ -1,7 +1,7 @@
 {
   "name": "assay-harness",
   "version": "0.5.1",
-  "description": "Open Agentsia Labs benchmark harness for model runners, reproducible rubric scoring, proof bundles, and RunRecord output.",
+  "description": "Open benchmark harness, originated by Agentsia and prepared for donation to IAB Tech Lab, for model runners, reproducible rubric scoring, proof bundles, and RunRecord output.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,12 @@
     "docs/assets",
     "CHANGELOG.md",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "MAINTAINERS.md",
+    "NOTICE"
   ],
   "keywords": [
     "llm-evaluation",
@@ -23,9 +28,11 @@
     "eval-harness",
     "adtech",
     "frontier-ai",
-    "modelsmith",
     "runrecord",
-    "reproducibility"
+    "reproducibility",
+    "iab-tech-lab",
+    "open-benchmark",
+    "proof-bundles"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -38,13 +45,14 @@
     "audit:deadcode": "knip",
     "contracts:cross-repo": "tsx scripts/validate-cross-repo-contract.ts",
     "fleet:freshness": "tsx scripts/fleet-freshness.ts",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "prepack": "pnpm build"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.90.0",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@google/genai": "^1.50.1",
     "@huggingface/inference": "^4.13.15",
     "commander": "^12.1.0",
@@ -70,5 +78,5 @@
   "bugs": {
     "url": "https://github.com/agentsia-uk/assay-harness/issues"
   },
-  "homepage": "https://agentsia.uk/labs/benchmarks/assay-adtech-v1"
+  "homepage": "https://github.com/agentsia-uk/assay-harness#readme"
 }
