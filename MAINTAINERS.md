@@ -10,7 +10,7 @@ tarballs.
 - Repository owner before transfer: Agentsia.
 - Historical benchmark producer for Assay-Adtech v1: Agentsia / Modelsmith.
 - Distribution before transfer: GitHub source and GitHub release tarballs.
-- npm publication: not enabled.
+- npm publication: disabled with `private: true`.
 
 ## Handover Boundary
 

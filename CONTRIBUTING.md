@@ -65,9 +65,9 @@ outputs, and Modelsmith-internal state out of this repository.
 
 ## Release Packaging
 
-Public distribution is GitHub release tarballs for now. The package is not
-published to npm. The `prepack` script builds `dist` before packaging so local
-release dry-runs match the release tarball shape.
+Public distribution is GitHub release tarballs for now. The package is marked
+private and is not published to npm. The `prepack` script builds `dist` before
+packaging so local release dry-runs match the release tarball shape.
 
 Use:
 
