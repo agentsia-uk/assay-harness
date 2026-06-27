@@ -2,6 +2,7 @@
   "name": "assay-harness",
   "version": "0.5.1",
   "description": "Open benchmark harness, originated by Agentsia and prepared for donation to IAB Tech Lab, for model runners, reproducible rubric scoring, proof bundles, and RunRecord output.",
+  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -45,7 +46,6 @@
     "audit:deadcode": "knip",
     "contracts:cross-repo": "tsx scripts/validate-cross-repo-contract.ts",
     "fleet:freshness": "tsx scripts/fleet-freshness.ts",
-    "prepublishOnly": "pnpm build",
     "prepack": "pnpm build"
   },
   "engines": {
@@ -67,9 +67,6 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.60.1",
     "vitest": "^2.1.8"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "repository": {
     "type": "git",

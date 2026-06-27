@@ -7,8 +7,8 @@ Donation-readiness preparation for IAB Tech Lab handover.
 - Added security, contributing, code-of-conduct, maintainer, and notice files.
 - Updated README and package metadata to state that `assay-harness` is an
   Agentsia-originated project prepared for donation to IAB Tech Lab.
-- Documented GitHub release tarballs as the current distribution path; npm
-  publication remains disabled.
+- Documented GitHub release tarballs as the current distribution path and marked
+  the package private so npm publication remains disabled.
 - Added `prepack` so local package tarballs build `dist/` before packing.
 - Updated production dependencies and workspace overrides to clear known
   moderate advisories in `@anthropic-ai/sdk` and transitive `protobufjs`.

@@ -95,9 +95,9 @@ CI runners, security process, and release workflow.
 ## Get Started
 
 Current public distribution is through GitHub source and release tarballs. The
-package is not published to npm yet. For local development, clone the repository
-and run the source commands below. For release consumption, download and verify
-the release tarball from GitHub.
+package is marked private and is not published to npm. For local development,
+clone the repository and run the source commands below. For release
+consumption, download and verify the release tarball from GitHub.
 
 1. Install Node 22 or later and use the pnpm version pinned by Corepack.
 
