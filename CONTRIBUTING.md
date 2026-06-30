@@ -77,3 +77,12 @@ pnpm pack
 
 and verify the tarball contains `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`,
 and documented public assets.
+
+## Documentation and writing style
+
+For README and documentation prose in this repository:
+
+- British English. Plain, direct language. No filler or marketing slop, and no robotic transitions.
+- Avoid "X, not Y" mirror constructions and em dashes. Keep semicolons rare. Vary sentence length.
+- Ground every claim in the actual code and verify it against source before publishing.
+- Describe capability maturity honestly. Do not present planned or designed behaviour as if it already ships.
