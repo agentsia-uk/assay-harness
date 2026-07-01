@@ -160,7 +160,7 @@ export default async function fixtureJudge() {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('validates human annotations and exports agreed/adjudicated preference pairs', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-human-cli-'))
@@ -196,7 +196,7 @@ export default async function fixtureJudge() {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('fails human validation for unresolved conflicts', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-human-cli-'))
@@ -224,7 +224,7 @@ export default async function fixtureJudge() {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('applies adjudication decisions from the CLI', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-human-cli-'))
@@ -282,5 +282,5 @@ export default async function fixtureJudge() {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 })

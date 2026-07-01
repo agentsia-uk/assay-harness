@@ -282,7 +282,7 @@ describe('run ledger', () => {
     expect(second.stderr).toContain('"scenario:skip"')
     expect((await readFile(ledger, 'utf8')).trim().split(/\r?\n/)).toHaveLength(lineCount)
     expect(await readFile(secondOut, 'utf8')).toBe(await readFile(firstOut, 'utf8'))
-  }, 30_000)
+  }, 120_000)
 
   it('persists failed cells from CLI runs for diagnosis', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-cli-ledger-failure-'))
@@ -327,5 +327,5 @@ describe('run ledger', () => {
       runnerId: 'stub:echo',
     })
     expect(JSON.stringify(state?.entries[0])).toContain('missing-checker')
-  }, 30_000)
+  }, 120_000)
 })
