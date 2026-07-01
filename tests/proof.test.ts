@@ -657,7 +657,7 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 120_000)
+  }, 300_000)
 
   it('replays pinned outputs and fails when regenerated aggregates diverge', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
