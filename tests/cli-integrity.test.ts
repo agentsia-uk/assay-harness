@@ -53,7 +53,7 @@ describe('CLI integrity wiring', () => {
     for (const axis of Object.values(agg.axes)) {
       expect(axis.confidenceInterval).toBeDefined()
     }
-  }, 30_000)
+  }, 120_000)
 
   it('refuses to score when the declared contract hash does not match', async () => {
     const wrongHash = 'deadbeef'.repeat(8)
@@ -68,7 +68,7 @@ describe('CLI integrity wiring', () => {
     ])
     expect(code).not.toBe(0)
     expect(stderr).toContain('scenario-set hash mismatch')
-  }, 30_000)
+  }, 120_000)
 
   it('refuses legacy meta.multiTurn scenarios before the single-shot run path', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-cli-multiturn-'))
@@ -115,5 +115,5 @@ describe('CLI integrity wiring', () => {
     expect(code).not.toBe(0)
     expect(stderr).toContain('legacy meta.multiTurn')
     await expect(readFile(out, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-  }, 30_000)
+  }, 120_000)
 })

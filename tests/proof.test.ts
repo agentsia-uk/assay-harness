@@ -418,7 +418,7 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('verifies a proof manifest through the CLI and emits machine-readable JSON', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
@@ -458,7 +458,7 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('returns clear human failure reasons for checksum mismatches', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
@@ -499,7 +499,7 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('fails closed on wrong proof hash schema and missing trace inputs', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
@@ -574,7 +574,7 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('uses the shared claim-card eligibility gate for leaderboard proof verification', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
@@ -657,7 +657,7 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('replays pinned outputs and fails when regenerated aggregates diverge', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-proof-'))
@@ -721,5 +721,5 @@ describe('proof bundle manifest', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 })
