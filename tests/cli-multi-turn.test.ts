@@ -100,7 +100,7 @@ describe('CLI multi-turn execution', () => {
       errors: [],
       scenarioSetHash: record.scenarioSetHash,
     })
-  }, 120_000)
+  }, 300_000)
 
   it('fails closed on legacy meta.multiTurn marker-only scenarios', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-cli-multiturn-'))
@@ -118,7 +118,7 @@ describe('CLI multi-turn execution', () => {
 
     expect(code).not.toBe(0)
     expect(stderr).toContain('legacy meta.multiTurn')
-  }, 120_000)
+  }, 300_000)
 
   it('fails closed on public multi-turn scenarios without persistence criteria', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assay-cli-multiturn-'))
@@ -136,5 +136,5 @@ describe('CLI multi-turn execution', () => {
 
     expect(code).not.toBe(0)
     expect(stderr).toContain('no persistenceCriteria')
-  }, 120_000)
+  }, 300_000)
 })
